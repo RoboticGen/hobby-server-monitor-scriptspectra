@@ -1,0 +1,25 @@
+[Unit]
+Description=LXD Monitor Backend (Falcon + Gunicorn)
+After=network.target
+
+[Service]
+User=lxd-monitor
+Group=lxd
+WorkingDirectory=/opt/lxd-monitor/backend
+EnvironmentFile=/opt/lxd-monitor/.env
+ExecStart=/opt/lxd-monitor/venv/bin/gunicorn app.main:application \
+    --workers 2 \
+    --bind 0.0.0.0:8000 \
+    --timeout 60 \
+    --keep-alive 5 \
+    --log-level info \
+    --access-logfile - \
+    --error-logfile -
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lxd-monitor-backend
+
+[Install]
+WantedBy=multi-user.target

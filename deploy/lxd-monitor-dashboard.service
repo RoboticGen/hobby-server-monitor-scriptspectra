@@ -1,0 +1,21 @@
+[Unit]
+Description=LXD Monitor Dashboard (Astro SSR Node)
+After=network.target lxd-monitor-backend.service
+Wants=lxd-monitor-backend.service
+
+[Service]
+User=lxd-monitor
+WorkingDirectory=/opt/lxd-monitor/dashboard
+EnvironmentFile=/opt/lxd-monitor/.env
+# HOST and PORT env vars are read by the Astro standalone Node server
+Environment=HOST=0.0.0.0
+Environment=PORT=4321
+ExecStart=/usr/bin/node ./dist/server/entry.mjs
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lxd-monitor-dashboard
+
+[Install]
+WantedBy=multi-user.target
