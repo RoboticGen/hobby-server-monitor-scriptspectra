@@ -43,7 +43,7 @@ class ContainerCollection:
         db = get_db()
 
         # Query all containers in DB that are not soft-deleted
-        query = "SELECT name, description, created_by, created_at FROM containers WHERE deleted_at IS NULL ORDER BY created_at DESC"
+        query = "SELECT name, description, created_by, ram_mb, cpu_cores, disk_gb, created_at FROM containers WHERE deleted_at IS NULL ORDER BY created_at DESC"
         db_containers = db.execute(query).fetchall()
 
         client = get_client()
@@ -61,6 +61,11 @@ class ContainerCollection:
                 "name": name,
                 "description": row["description"],
                 "created_by": row["created_by"],
+                "limits": {
+                    "ram_mb": row["ram_mb"],
+                    "cpu_cores": row["cpu_cores"],
+                    "disk_gb": row["disk_gb"],
+                },
                 "created_at": row["created_at"],
                 "status": "Unknown",
                 "status_code": 0,
@@ -87,9 +92,9 @@ class ContainerCollection:
         1. Validate payload and name regex
         2. Verify DB and LXD uniqueness
         3. Image alias availability check
-        4. User resource quota check
+        4. User resource quota check (dynamic RAM, CPU, Disk)
         5. Create container in LXD via pylxd
-        6. Record in DB and write audit log
+        6. Record in DB with dynamic limit values and write audit log
         """
         data = req.media or {}
         raw_name = data.get("name", "")
@@ -130,7 +135,7 @@ class ContainerCollection:
                 description=f"A container named '{name}' already exists on the LXD host."
             )
 
-        # 4. Quota check (stub user_id = 1 if unauthenticated req during Phase 2)
+        # 4. Dynamic Quota check (stub user_id = 1 if unauthenticated req during Phase 2)
         actor_id = getattr(req.context, "user", {}).get("id", 1) if hasattr(req.context, "user") else 1
         check_quota(db, actor_id, req_ram_mb=ram_mb, req_cpu_cores=cpu_cores, req_disk_gb=disk_gb)
 
@@ -154,10 +159,10 @@ class ContainerCollection:
                 description=f"LXD failed to create container: {create_err}"
             )
 
-        # 6. Insert into DB and audit log
+        # 6. Insert into DB with dynamic allocations and write audit log
         db.execute(
-            "INSERT INTO containers (name, description, created_by) VALUES (?, ?, ?)",
-            (name, description, actor_id)
+            "INSERT INTO containers (name, description, created_by, ram_mb, cpu_cores, disk_gb) VALUES (?, ?, ?, ?, ?, ?)",
+            (name, description, actor_id, ram_mb, cpu_cores, disk_gb)
         )
         write_audit_log(
             db,
@@ -194,7 +199,7 @@ class ContainerResource:
         db = get_db()
 
         c_row = db.execute(
-            "SELECT name, description, created_by, created_at FROM containers WHERE name = ? AND deleted_at IS NULL",
+            "SELECT name, description, created_by, ram_mb, cpu_cores, disk_gb, created_at FROM containers WHERE name = ? AND deleted_at IS NULL",
             (name,)
         ).fetchone()
 
@@ -224,6 +229,11 @@ class ContainerResource:
                 "name": c_row["name"],
                 "description": c_row["description"],
                 "created_by": c_row["created_by"],
+                "limits": {
+                    "ram_mb": c_row["ram_mb"],
+                    "cpu_cores": c_row["cpu_cores"],
+                    "disk_gb": c_row["disk_gb"],
+                },
                 "created_at": c_row["created_at"],
                 "lxd_status": ct_obj.status if ct_obj else "Missing",
                 "lxd_state": state_data,
@@ -235,10 +245,13 @@ class ContainerResource:
         name = validate_container_name(name)
         data = req.media or {}
         description = data.get("description")
+        ram_mb = data.get("ram_mb")
+        cpu_cores = data.get("cpu_cores")
+        disk_gb = data.get("disk_gb")
 
         db = get_db()
         c_row = db.execute(
-            "SELECT name FROM containers WHERE name = ? AND deleted_at IS NULL",
+            "SELECT name, ram_mb, cpu_cores, disk_gb FROM containers WHERE name = ? AND deleted_at IS NULL",
             (name,)
         ).fetchone()
 
@@ -248,13 +261,29 @@ class ContainerResource:
                 description=f"No container named '{name}' found."
             )
 
+        updates = []
+        params = []
         if description is not None:
+            updates.append("description = ?")
+            params.append(description)
+        if ram_mb is not None:
+            updates.append("ram_mb = ?")
+            params.append(int(ram_mb))
+        if cpu_cores is not None:
+            updates.append("cpu_cores = ?")
+            params.append(int(cpu_cores))
+        if disk_gb is not None:
+            updates.append("disk_gb = ?")
+            params.append(int(disk_gb))
+
+        if updates:
+            params.append(name)
             db.execute(
-                "UPDATE containers SET description = ? WHERE name = ?",
-                (description, name)
+                f"UPDATE containers SET {', '.join(updates)} WHERE name = ?",
+                tuple(params)
             )
             actor_id = getattr(req.context, "user", {}).get("id", 1) if hasattr(req.context, "user") else 1
-            write_audit_log(db, actor_id=actor_id, action="container.update", target=name, detail={"description": description})
+            write_audit_log(db, actor_id=actor_id, action="container.update", target=name, detail=data)
             db.commit()
 
         resp.media = {"message": f"Container '{name}' updated successfully."}
