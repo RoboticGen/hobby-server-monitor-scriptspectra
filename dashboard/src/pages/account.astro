@@ -1,0 +1,98 @@
+---
+// dashboard/src/pages/account.astro
+// User account & quota overview page
+const sessionCookie = Astro.cookies.get('session_token');
+
+if (!sessionCookie || !sessionCookie.value) {
+  return Astro.redirect('/');
+}
+
+let user = null;
+try {
+  const userRes = await fetch('http://localhost:8000/api/me', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+
+  if (!userRes.ok) return Astro.redirect('/');
+  const userData = await userRes.json();
+  user = userData.user;
+} catch (err) {
+  return Astro.redirect('/');
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>My Account — Server Monitor</title>
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #161922;
+        --border: #262b38;
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #6366f1;
+        --purple: #a855f7;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background-color: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; }
+      header { background-color: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+      .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; }
+      .brand-icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), var(--purple)); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; }
+      .nav-links { display: flex; align-items: center; gap: 1.5rem; margin-left: 2rem; }
+      .nav-item { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; }
+      .nav-item:hover, .nav-item.active { color: var(--text); }
+      main { max-width: 1150px; margin: 2.5rem auto; padding: 0 1.5rem; }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 1.5rem; }
+      .quota-row { display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div style="display: flex; align-items: center;">
+        <div class="brand">
+          <div class="brand-icon">⚡</div>
+          <span>Server Monitor</span>
+        </div>
+        <nav class="nav-links">
+          <a href="/dashboard" class="nav-item">Dashboard</a>
+          <a href="/account" class="nav-item active">My Quotas</a>
+        </nav>
+      </div>
+      <div style="font-size: 0.9rem; font-weight: 600; color: #a5b4fc;">
+        {user.email}
+      </div>
+    </header>
+
+    <main>
+      <div class="card">
+        <h1 style="font-size: 1.5rem; margin-bottom: 0.5rem;">Account & Quotas</h1>
+        <p style="color: var(--muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
+          Your current resource quotas and profile configuration.
+        </p>
+
+        <div class="quota-row">
+          <span style="color: var(--muted);">Email</span>
+          <span style="font-weight: 600;">{user.email}</span>
+        </div>
+        <div class="quota-row">
+          <span style="color: var(--muted);">Role</span>
+          <span style="font-weight: 600; text-transform: uppercase;">{user.role}</span>
+        </div>
+        <div class="quota-row">
+          <span style="color: var(--muted);">RAM Allocation Limit</span>
+          <span style="font-weight: 600;">{user.quotas.ram_mb} MB</span>
+        </div>
+        <div class="quota-row">
+          <span style="color: var(--muted);">CPU Core Limit</span>
+          <span style="font-weight: 600;">{user.quotas.cpu_cores} Cores</span>
+        </div>
+        <div class="quota-row" style="border: none;">
+          <span style="color: var(--muted);">Disk Storage Limit</span>
+          <span style="font-weight: 600;">{user.quotas.disk_gb} GB</span>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
