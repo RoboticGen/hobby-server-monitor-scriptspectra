@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS containers (
     name        TEXT    PRIMARY KEY,                   -- LXD container name
     description TEXT,
     created_by  INTEGER REFERENCES users(id),
+    ram_mb      INTEGER NOT NULL DEFAULT 512,          -- Dynamic memory allocation in MB
+    cpu_cores   INTEGER NOT NULL DEFAULT 1,            -- Dynamic CPU cores allocation
+    disk_gb     INTEGER NOT NULL DEFAULT 5,            -- Dynamic Disk allocation in GB
     created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
     deleted_at  TEXT                                   -- soft delete
 );
@@ -85,9 +88,23 @@ CREATE INDEX IF NOT EXISTS idx_assignments_user ON assignments(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 """
 
+def apply_migrations(db) -> None:
+    """Migrate existing tables if columns are missing."""
+    pragma_cols = [row["name"] for row in db.execute("PRAGMA table_info(containers)").fetchall()]
+    if pragma_cols:
+        if "ram_mb" not in pragma_cols:
+            db.execute("ALTER TABLE containers ADD COLUMN ram_mb INTEGER NOT NULL DEFAULT 512")
+        if "cpu_cores" not in pragma_cols:
+            db.execute("ALTER TABLE containers ADD COLUMN cpu_cores INTEGER NOT NULL DEFAULT 1")
+        if "disk_gb" not in pragma_cols:
+            db.execute("ALTER TABLE containers ADD COLUMN disk_gb INTEGER NOT NULL DEFAULT 5")
+        db.commit()
+
 def init_db() -> None:
     log.info("Initializing database schema...")
+    db = get_db()
     execute_script(SCHEMA)
+    apply_migrations(db)
     log.info("Database schema initialized successfully.")
 
 if __name__ == "__main__":

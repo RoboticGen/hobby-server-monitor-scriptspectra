@@ -2,7 +2,8 @@
 backend/app/util/quota.py
 
 Quota accounting helpers for user resource allocation checks.
-Enforces quota bounds regardless of container runtime state (stopped containers still count).
+Enforces quota bounds dynamically based on actual configured limits stored per container,
+regardless of container runtime state (stopped containers still count).
 """
 
 from sqlite3 import Connection
@@ -11,40 +12,35 @@ import falcon
 
 def get_user_used(db: Connection, user_id: int) -> dict:
     """
-    Returns the sum of configured limits for all non-deleted containers assigned to user_id.
+    Returns the sum of dynamically configured resource limits for all non-deleted containers assigned to user_id.
     Note: Stopped containers still count toward user quota to prevent quota bypass via container stop.
 
     Returns dict:
         {
             "ram_mb": int,
             "cpu_cores": int,
-            "disk_gb": int
+            "disk_gb": int,
+            "assigned_containers_count": int
         }
     """
-    # Find all active container assignments for user where container is not soft-deleted
     query = """
-        SELECT c.name
+        SELECT COALESCE(SUM(c.ram_mb), 0) AS total_ram,
+               COALESCE(SUM(c.cpu_cores), 0) AS total_cpu,
+               COALESCE(SUM(c.disk_gb), 0) AS total_disk,
+               COUNT(c.name) AS total_count
         FROM assignments a
         JOIN containers c ON a.container_name = c.name
         WHERE a.user_id = ?
           AND a.revoked_at IS NULL
           AND c.deleted_at IS NULL
     """
-    rows = db.execute(query, (user_id,)).fetchall()
-    container_names = [row["name"] for row in rows]
-
-    # For now, default allocation per container if not stored directly in DB:
-    # 512 MB RAM, 1 CPU core, 5 GB Disk per container default estimate.
-    # In full system, container limits come from container config/database metadata.
-    total_ram = len(container_names) * 512
-    total_cpu = len(container_names) * 1
-    total_disk = len(container_names) * 5
+    row = db.execute(query, (user_id,)).fetchone()
 
     return {
-        "ram_mb": total_ram,
-        "cpu_cores": total_cpu,
-        "disk_gb": total_disk,
-        "assigned_containers_count": len(container_names),
+        "ram_mb": row["total_ram"],
+        "cpu_cores": row["total_cpu"],
+        "disk_gb": row["total_disk"],
+        "assigned_containers_count": row["total_count"],
     }
 
 
