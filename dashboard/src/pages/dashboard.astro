@@ -1,0 +1,228 @@
+---
+// dashboard/src/pages/dashboard.astro
+// SSR server-side session check against Falcon backend
+const sessionCookie = Astro.cookies.get('session_token');
+
+if (!sessionCookie || !sessionCookie.value) {
+  return Astro.redirect('/');
+}
+
+let user = null;
+try {
+  const res = await fetch('http://localhost:8000/api/me', {
+    headers: {
+      Cookie: `session_token=${sessionCookie.value}`
+    }
+  });
+
+  if (!res.ok) {
+    return Astro.redirect('/');
+  }
+
+  const data = await res.json();
+  user = data.user;
+} catch (err) {
+  return Astro.redirect('/');
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hobby Server Monitor — Dashboard</title>
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #161922;
+        --surface-hover: #1e2230;
+        --border: #262b38;
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #6366f1;
+        --green: #22c55e;
+        --purple: #a855f7;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        min-height: 100vh;
+      }
+      header {
+        background-color: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        font-size: 1.2rem;
+      }
+      .brand-icon {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, var(--accent), var(--purple));
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.1rem;
+      }
+      .user-profile {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      .avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 2px solid var(--border);
+      }
+      .badge {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.2rem 0.6rem;
+        border-radius: 999px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .badge-admin { background-color: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+      .badge-user { background-color: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); }
+      .btn-logout {
+        background-color: transparent;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        padding: 0.4rem 0.9rem;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .btn-logout:hover {
+        background-color: #ef4444;
+        color: white;
+        border-color: #ef4444;
+      }
+      main {
+        max-width: 1100px;
+        margin: 2.5rem auto;
+        padding: 0 1.5rem;
+      }
+      .welcome-card {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .user-details h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.3rem; }
+      .user-details p { color: var(--muted); font-size: 0.95rem; }
+      .quota-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.25rem;
+        margin-bottom: 2rem;
+      }
+      .quota-card {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.25rem;
+      }
+      .quota-title { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
+      .quota-value { font-size: 1.5rem; font-weight: 700; color: var(--text); }
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.85rem;
+        color: var(--green);
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        padding: 0.3rem 0.75rem;
+        border-radius: 999px;
+      }
+      .dot { width: 8px; height: 8px; background-color: var(--green); border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <span>Hobby Server Monitor</span>
+      </div>
+      <div class="user-profile">
+        {user.picture_url && <img src={user.picture_url} alt={user.name} class="avatar" />}
+        <div>
+          <div style="font-weight: 600; font-size: 0.9rem;">{user.name || user.email}</div>
+          <span class={`badge ${user.role === 'admin' ? 'badge-admin' : 'badge-user'}`}>
+            {user.role}
+          </span>
+        </div>
+        <button id="logoutBtn" class="btn-logout">Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <div class="welcome-card">
+        <div class="user-details">
+          <h2>Welcome back, {user.name || user.email}!</h2>
+          <p>Authenticated via Google OAuth 2.0 • Session active</p>
+        </div>
+        <div class="status-pill">
+          <span class="dot"></span>
+          Auth Active
+        </div>
+      </div>
+
+      <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;">Assigned Resource Quotas</h3>
+      <div class="quota-grid">
+        <div class="quota-card">
+          <div class="quota-title">RAM Quota</div>
+          <div class="quota-value">{user.quotas.ram_mb} MB</div>
+        </div>
+        <div class="quota-card">
+          <div class="quota-title">CPU Cores Quota</div>
+          <div class="quota-value">{user.quotas.cpu_cores} Cores</div>
+        </div>
+        <div class="quota-card">
+          <div class="quota-title">Disk Storage Quota</div>
+          <div class="quota-value">{user.quotas.disk_gb} GB</div>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const logoutBtn = document.getElementById('logoutBtn');
+      if (logoutBtn) {
+        logoutBtn.addEventListener('click', async () => {
+          try {
+            const res = await fetch('/auth/logout', {
+              method: 'POST',
+              credentials: 'include'
+            });
+            if (res.ok) {
+              window.location.href = '/';
+            }
+          } catch (err) {
+            console.error('Logout error:', err);
+            window.location.href = '/';
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

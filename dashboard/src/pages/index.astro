@@ -1,17 +1,152 @@
 ---
+// dashboard/src/pages/index.astro
+const sessionCookie = Astro.cookies.get('session_token');
 
+if (sessionCookie && sessionCookie.value) {
+  try {
+    const res = await fetch('http://localhost:8000/api/me', {
+      headers: {
+        Cookie: `session_token=${sessionCookie.value}`
+      }
+    });
+    if (res.ok) {
+      return Astro.redirect('/dashboard');
+    }
+  } catch (err) {
+    // Backend offline or error -> render login page
+  }
+}
+
+const url = new URL(Astro.request.url);
+const errorQuery = url.searchParams.get('error');
+
+const errorMessages: Record<string, string> = {
+  not_invited: 'Your account is not invited to this server. Ask an administrator for access.',
+  account_revoked: 'Your account access has been revoked by an administrator.',
+  csrf_state_mismatch: 'Authentication security check failed. Please try again.',
+  missing_state_cookie: 'Session state expired. Please try signing in again.',
+  token_exchange_failed: 'Failed to exchange authorization token with Google.',
+  userinfo_failed: 'Failed to retrieve profile info from Google.',
+  no_email_provided: 'Your Google account did not provide a verified email address.',
+};
+
+const errorMessage = errorQuery ? (errorMessages[errorQuery] || `Authentication failed (${errorQuery})`) : null;
 ---
 
 <html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hobby Server Monitor — Login</title>
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #161922;
+        --border: #262b38;
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #6366f1;
+        --accent-hover: #4f46e5;
+        --red: #ef4444;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+      }
+      .card {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2.5rem;
+        width: 100%;
+        max-width: 420px;
+        text-align: center;
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+      }
+      .logo-icon {
+        width: 48px;
+        height: 48px;
+        background: linear-gradient(135deg, #6366f1, #a855f7);
+        border-radius: 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 1.25rem;
+        font-weight: bold;
+        font-size: 1.5rem;
+        color: #fff;
+      }
+      h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+      p { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.4; }
+      .alert-error {
+        background-color: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #fca5a5;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        margin-bottom: 1.5rem;
+        text-align: left;
+        line-height: 1.4;
+      }
+      .btn-google {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        width: 100%;
+        padding: 0.85rem 1.25rem;
+        background-color: #ffffff;
+        color: #1f2937;
+        font-weight: 600;
+        font-size: 0.95rem;
+        border-radius: 8px;
+        text-decoration: none;
+        transition: background-color 0.2s, transform 0.1s;
+      }
+      .btn-google:hover {
+        background-color: #f3f4f6;
+        transform: translateY(-1px);
+      }
+      .btn-google svg { width: 20px; height: 20px; }
+      .footer-note {
+        margin-top: 1.75rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo-icon">⚡</div>
+      <h1>Server Monitor</h1>
+      <p>Manage LXD containers, monitor live metrics, and access container terminals.</p>
+
+      {errorMessage && (
+        <div class="alert-error">
+          ⚠️ {errorMessage}
+        </div>
+      )}
+
+      <a href="/auth/google" class="btn-google">
+        <svg viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
+          <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.11-6.72-4.96H1.29v3.15C3.26 21.3 7.31 24 12 24z"/>
+          <path fill="#FBBC05" d="M5.28 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.61H1.29c-.8 1.6-1.25 3.4-1.25 5.39s.45 3.79 1.25 5.39l3.99-3.15z"/>
+          <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.61l3.99 3.15c.95-2.85 3.6-4.96 6.72-4.96z"/>
+        </svg>
+        Sign in with Google
+      </a>
+
+      <div class="footer-note">
+        Protected by session cookies & Role-Based Access Control
+      </div>
+    </div>
+  </body>
 </html>
