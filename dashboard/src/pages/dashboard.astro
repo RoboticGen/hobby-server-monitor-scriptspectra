@@ -1,6 +1,6 @@
 ---
 // dashboard/src/pages/dashboard.astro
-// SSR server-side session check against Falcon backend
+// SSR server-side session & role verification against Falcon backend
 const sessionCookie = Astro.cookies.get('session_token');
 
 if (!sessionCookie || !sessionCookie.value) {
@@ -8,29 +8,46 @@ if (!sessionCookie || !sessionCookie.value) {
 }
 
 let user = null;
+let containers = [];
+
 try {
-  const res = await fetch('http://localhost:8000/api/me', {
+  // 1. Fetch authenticated user profile & role
+  const userRes = await fetch('http://localhost:8000/api/me', {
     headers: {
       Cookie: `session_token=${sessionCookie.value}`
     }
   });
 
-  if (!res.ok) {
+  if (!userRes.ok) {
     return Astro.redirect('/');
   }
 
-  const data = await res.json();
-  user = data.user;
+  const userData = await userRes.json();
+  user = userData.user;
+
+  // 2. Fetch container list for role view
+  const containersRes = await fetch('http://localhost:8000/api/containers', {
+    headers: {
+      Cookie: `session_token=${sessionCookie.value}`
+    }
+  });
+
+  if (containersRes.ok) {
+    const cData = await containersRes.json();
+    containers = cData.containers || [];
+  }
 } catch (err) {
   return Astro.redirect('/');
 }
+
+const isAdmin = user.role === 'admin';
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Hobby Server Monitor — Dashboard</title>
+    <title>{isAdmin ? 'Admin Dashboard' : 'User Dashboard'} — Server Monitor</title>
     <style>
       :root {
         --bg: #0d0f14;
@@ -40,8 +57,11 @@ try {
         --text: #f3f4f6;
         --muted: #9ca3af;
         --accent: #6366f1;
+        --accent-hover: #4f46e5;
         --green: #22c55e;
         --purple: #a855f7;
+        --amber: #f59e0b;
+        --red: #ef4444;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
@@ -76,6 +96,22 @@ try {
         color: white;
         font-size: 1.1rem;
       }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        margin-left: 2rem;
+      }
+      .nav-item {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: color 0.2s;
+      }
+      .nav-item:hover, .nav-item.active {
+        color: var(--text);
+      }
       .user-profile {
         display: flex;
         align-items: center;
@@ -89,14 +125,14 @@ try {
       }
       .badge {
         font-size: 0.75rem;
-        font-weight: 600;
-        padding: 0.2rem 0.6rem;
+        font-weight: 700;
+        padding: 0.2rem 0.65rem;
         border-radius: 999px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
       }
-      .badge-admin { background-color: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
-      .badge-user { background-color: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); }
+      .badge-admin { background-color: rgba(168, 85, 247, 0.25); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.5); }
+      .badge-user { background-color: rgba(99, 102, 241, 0.25); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.5); }
       .btn-logout {
         background-color: transparent;
         border: 1px solid var(--border);
@@ -113,62 +149,156 @@ try {
         border-color: #ef4444;
       }
       main {
-        max-width: 1100px;
-        margin: 2.5rem auto;
+        max-width: 1150px;
+        margin: 2rem auto;
         padding: 0 1.5rem;
       }
-      .welcome-card {
+      .header-banner {
         background-color: var(--surface);
         border: 1px solid var(--border);
         border-radius: 12px;
-        padding: 2rem;
+        padding: 1.75rem 2rem;
         margin-bottom: 2rem;
         display: flex;
         align-items: center;
         justify-content: space-between;
       }
-      .user-details h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.3rem; }
-      .user-details p { color: var(--muted); font-size: 0.95rem; }
-      .quota-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 1.25rem;
-        margin-bottom: 2rem;
+      .header-banner h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.3rem; }
+      .header-banner p { color: var(--muted); font-size: 0.95rem; }
+
+      .action-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
       }
-      .quota-card {
-        background-color: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 1.25rem;
-      }
-      .quota-title { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }
-      .quota-value { font-size: 1.5rem; font-weight: 700; color: var(--text); }
-      .status-pill {
+      .btn-primary {
+        background-color: var(--accent);
+        color: white;
+        border: none;
+        padding: 0.6rem 1.25rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-decoration: none;
         display: inline-flex;
         align-items: center;
         gap: 0.5rem;
-        font-size: 0.85rem;
-        color: var(--green);
-        background: rgba(34, 197, 94, 0.1);
-        border: 1px solid rgba(34, 197, 94, 0.2);
-        padding: 0.3rem 0.75rem;
-        border-radius: 999px;
+        transition: background-color 0.2s;
       }
-      .dot { width: 8px; height: 8px; background-color: var(--green); border-radius: 50%; display: inline-block; animation: pulse 2s infinite; }
-      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      .btn-primary:hover { background-color: var(--accent-hover); }
+
+      .grid-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 1.5rem;
+      }
+      .card {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        transition: border-color 0.2s;
+      }
+      .card:hover { border-color: #3b4254; }
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+      }
+      .card-title { font-size: 1.1rem; font-weight: 700; color: var(--text); }
+      .status-badge {
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.25rem 0.65rem;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .status-running { background-color: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
+      .status-stopped { background-color: rgba(107, 114, 128, 0.15); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
+      .status-frozen { background-color: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+      .limits-list {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-top: 1rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border);
+      }
+      .card-actions {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        padding-top: 0.75rem;
+        border-top: 1px solid var(--border);
+      }
+      .btn-terminal {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: rgba(99,102,241,0.12);
+        color: #818cf8;
+        border: 1px solid rgba(99,102,241,0.3);
+        padding: 0.35rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s;
+        font-family: 'Courier New', monospace;
+      }
+      .btn-terminal:hover { background: rgba(99,102,241,0.25); border-color: rgba(99,102,241,0.6); }
+      .btn-metrics {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        background: rgba(34,197,94,0.08);
+        color: #4ade80;
+        border: 1px solid rgba(34,197,94,0.25);
+        padding: 0.35rem 0.75rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .btn-metrics:hover { background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.5); }
+      .empty-state {
+        background-color: var(--surface);
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+        padding: 3rem;
+        text-align: center;
+        color: var(--muted);
+      }
     </style>
   </head>
   <body>
     <header>
-      <div class="brand">
-        <div class="brand-icon">⚡</div>
-        <span>Hobby Server Monitor</span>
+      <div style="display: flex; align-items: center;">
+        <div class="brand">
+          <div class="brand-icon">⚡</div>
+          <span>Server Monitor</span>
+        </div>
+        <nav class="nav-links">
+          <a href="/dashboard" class="nav-item active">Dashboard</a>
+          {isAdmin ? (
+            <a href="/users" class="nav-item">User Management</a>
+          ) : (
+            <a href="/account" class="nav-item">My Quotas</a>
+          )}
+        </nav>
       </div>
       <div class="user-profile">
         {user.picture_url && <img src={user.picture_url} alt={user.name} class="avatar" />}
-        <div>
-          <div style="font-weight: 600; font-size: 0.9rem;">{user.name || user.email}</div>
-          <span class={`badge ${user.role === 'admin' ? 'badge-admin' : 'badge-user'}`}>
+        <div style="text-align: right;">
+          <div style="font-weight: 600; font-size: 0.88rem;">{user.name || user.email}</div>
+          <span class={`badge ${isAdmin ? 'badge-admin' : 'badge-user'}`}>
             {user.role}
           </span>
         </div>
@@ -177,32 +307,76 @@ try {
     </header>
 
     <main>
-      <div class="welcome-card">
-        <div class="user-details">
-          <h2>Welcome back, {user.name || user.email}!</h2>
-          <p>Authenticated via Google OAuth 2.0 • Session active</p>
+      <!-- Role-Specific Banner -->
+      <div class="header-banner">
+        <div>
+          <h1>{isAdmin ? 'Administrator Dashboard' : 'User Container Dashboard'}</h1>
+          <p>
+            {isAdmin
+              ? 'Full control over LXD containers, hypervisor host allocations, and user accounts.'
+              : 'View and manage your assigned LXD containers and resource quotas.'}
+          </p>
         </div>
-        <div class="status-pill">
-          <span class="dot"></span>
-          Auth Active
+        <div>
+          <span class={`badge ${isAdmin ? 'badge-admin' : 'badge-user'}`} style="font-size: 0.85rem; padding: 0.4rem 0.9rem;">
+            Role: {user.role.toUpperCase()}
+          </span>
         </div>
       </div>
 
-      <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;">Assigned Resource Quotas</h3>
-      <div class="quota-grid">
-        <div class="quota-card">
-          <div class="quota-title">RAM Quota</div>
-          <div class="quota-value">{user.quotas.ram_mb} MB</div>
-        </div>
-        <div class="quota-card">
-          <div class="quota-title">CPU Cores Quota</div>
-          <div class="quota-value">{user.quotas.cpu_cores} Cores</div>
-        </div>
-        <div class="quota-card">
-          <div class="quota-title">Disk Storage Quota</div>
-          <div class="quota-value">{user.quotas.disk_gb} GB</div>
-        </div>
+      <!-- Action Bar -->
+      <div class="action-bar">
+        <h2 style="font-size: 1.25rem; font-weight: 700;">
+          {isAdmin ? 'All Managed LXD Containers' : 'My Assigned Containers'}
+        </h2>
+
+        {isAdmin && (
+          <a href="/containers/create" class="btn-primary">
+            <span>+</span> Create Container
+          </a>
+        )}
       </div>
+
+      <!-- Containers Grid -->
+      {containers.length > 0 ? (
+        <div class="grid-container">
+          {containers.map((c) => (
+            <div class="card">
+              <div class="card-header">
+                <span class="card-title">{c.name}</span>
+                <span class={`status-badge ${c.status === 'Running' ? 'status-running' : c.status === 'Frozen' ? 'status-frozen' : 'status-stopped'}`}>
+                  {c.status}
+                </span>
+              </div>
+              <p style="font-size: 0.88rem; color: var(--muted); line-height: 1.4;">
+                {c.description || 'No description provided.'}
+              </p>
+              <div class="limits-list">
+                <span>RAM: {c.limits.ram_mb} MB</span>
+                <span>CPU: {c.limits.cpu_cores} Core(s)</span>
+                <span>Disk: {c.limits.disk_gb} GB</span>
+              </div>
+              <div class="card-actions">
+                <a href={`/terminal?container=${c.name}`} class="btn-terminal">
+                  &gt;_ Terminal
+                </a>
+                <a href={`/metrics?container=${c.name}`} class="btn-metrics">
+                  &#9685; Metrics
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div class="empty-state">
+          <p style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">No containers found</p>
+          <p style="font-size: 0.9rem;">
+            {isAdmin
+              ? 'Click "+ Create Container" above to provision a new LXD container.'
+              : 'You do not have any active container assignments. Contact an administrator for access.'}
+          </p>
+        </div>
+      )}
     </main>
 
     <script>

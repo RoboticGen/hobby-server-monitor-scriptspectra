@@ -26,6 +26,12 @@ from app.resources.metrics import (
     MetricsLiveResource,
     MetricsHistoryResource,
 )
+from app.resources.users import (
+    UserCollection,
+    UserResource,
+    UserAssignmentsResource,
+)
+from app.resources.terminal import TerminalExecResource
 
 
 class RootResource:
@@ -85,8 +91,12 @@ def create_app() -> falcon.App:
     app.add_route("/auth/google/callback", GoogleAuthCallbackResource())
     app.add_route("/auth/logout", LogoutResource())
 
-    # ── User Profile ──────────────────────────────────────────────────────────
+    # ── User Profile & User Management ────────────────────────────────────────
     app.add_route("/api/me", UserMeResource())
+    app.add_route("/api/users", UserCollection())
+    app.add_route("/api/users/{id}", UserResource())
+    app.add_route("/api/users/{id}/assignments", UserAssignmentsResource())
+    app.add_route("/api/users/{id}/assignments/{name}", UserAssignmentsResource())
 
     # ── Containers CRUD & Actions ─────────────────────────────────────────────
     app.add_route("/api/containers", ContainerCollection())
@@ -96,6 +106,12 @@ def create_app() -> falcon.App:
     # ── Metrics Endpoints ─────────────────────────────────────────────────────
     app.add_route("/api/metrics/{name}/live", MetricsLiveResource())
     app.add_route("/api/metrics/{name}/history", MetricsHistoryResource())
+
+    # ── Terminal Exec ─────────────────────────────────────────────────────────
+    # POST /api/terminal/{name}/exec
+    # Authenticated, authorized, audited command execution inside LXD containers.
+    # See backend/app/resources/terminal.py for full security design documentation.
+    app.add_route("/api/terminal/{name}/exec", TerminalExecResource())
 
     return app
 

@@ -1,0 +1,246 @@
+---
+// dashboard/src/pages/users.astro
+// Admin-only user management page
+const sessionCookie = Astro.cookies.get('session_token');
+
+if (!sessionCookie || !sessionCookie.value) {
+  return Astro.redirect('/');
+}
+
+let user = null;
+let userList = [];
+try {
+  const userRes = await fetch('http://localhost:8000/api/me', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+
+  if (!userRes.ok) return Astro.redirect('/');
+  const userData = await userRes.json();
+  user = userData.user;
+
+  if (user.role !== 'admin') {
+    return Astro.redirect('/dashboard');
+  }
+
+  // Fetch all users list
+  const listRes = await fetch('http://localhost:8000/api/users', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+  if (listRes.ok) {
+    const listData = await listRes.json();
+    userList = listData.users || [];
+  }
+} catch (err) {
+  return Astro.redirect('/');
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>User Management — Server Monitor</title>
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #161922;
+        --border: #262b38;
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #6366f1;
+        --accent-hover: #4f46e5;
+        --purple: #a855f7;
+        --green: #22c55e;
+        --red: #ef4444;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, sans-serif;
+        min-height: 100vh;
+      }
+      header {
+        background-color: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; }
+      .brand-icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), var(--purple)); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; }
+      .nav-links { display: flex; align-items: center; gap: 1.5rem; margin-left: 2rem; }
+      .nav-item { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; }
+      .nav-item:hover, .nav-item.active { color: var(--text); }
+      main { max-width: 1150px; margin: 2.5rem auto; padding: 0 1.5rem; }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1.25rem;
+      }
+      input, select {
+        background: #0f1117;
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 0.65rem 0.9rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        width: 100%;
+      }
+      .btn {
+        background-color: var(--accent);
+        color: white;
+        border: none;
+        padding: 0.65rem 1.25rem;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        cursor: pointer;
+      }
+      .btn:hover { background-color: var(--accent-hover); }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        font-size: 0.9rem;
+      }
+      th, td {
+        padding: 0.85rem 1rem;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+      th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+      .badge {
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 0.15rem 0.5rem;
+        border-radius: 999px;
+        text-transform: uppercase;
+      }
+      .badge-admin { background-color: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+      .badge-user { background-color: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div style="display: flex; align-items: center;">
+        <div class="brand">
+          <div class="brand-icon">⚡</div>
+          <span>Server Monitor</span>
+        </div>
+        <nav class="nav-links">
+          <a href="/dashboard" class="nav-item">Dashboard</a>
+          <a href="/users" class="nav-item active">User Management</a>
+        </nav>
+      </div>
+      <div style="font-size: 0.9rem; font-weight: 600; color: #c084fc;">
+        ADMIN: {user.email}
+      </div>
+    </header>
+
+    <main>
+      <!-- Invite Form Card -->
+      <div class="card">
+        <h2 style="font-size: 1.3rem; margin-bottom: 0.3rem;">Invite New User</h2>
+        <p style="color: var(--muted); font-size: 0.9rem;">
+          Enter a Google account email address below. Once invited, that user will be able to log in with Google and receive a <strong>User</strong> dashboard view.
+        </p>
+
+        <form id="inviteForm" class="form-grid">
+          <div>
+            <label style="font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem;">User Google Email</label>
+            <input type="email" id="inviteEmail" placeholder="user@gmail.com" required />
+          </div>
+          <div>
+            <label style="font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem;">Role</label>
+            <select id="inviteRole">
+              <option value="user">User (Standard)</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem;">RAM Quota (MB)</label>
+            <input type="number" id="inviteRam" value="2048" required />
+          </div>
+          <div style="display: flex; align-items: flex-end;">
+            <button type="submit" class="btn" style="width: 100%;">Send Invitation</button>
+          </div>
+        </form>
+        <div id="statusMsg" style="margin-top: 1rem; font-size: 0.9rem;"></div>
+      </div>
+
+      <!-- Users Table -->
+      <div class="card">
+        <h2 style="font-size: 1.3rem; margin-bottom: 1rem;">Registered & Invited Users</h2>
+
+        <table>
+          <thead>
+            <tr>
+              <th>User Email</th>
+              <th>Role</th>
+              <th>RAM Quota</th>
+              <th>CPU Quota</th>
+              <th>Disk Quota</th>
+              <th>Assigned Containers</th>
+            </tr>
+          </thead>
+          <tbody>
+            {userList.map((u) => (
+              <tr>
+                <td style="font-weight: 600;">{u.email}</td>
+                <td>
+                  <span class={`badge ${u.role === 'admin' ? 'badge-admin' : 'badge-user'}`}>
+                    {u.role}
+                  </span>
+                </td>
+                <td>{u.quotas.ram_mb} MB</td>
+                <td>{u.quotas.cpu_cores} Core(s)</td>
+                <td>{u.quotas.disk_gb} GB</td>
+                <td>{u.assigned_containers.length > 0 ? u.assigned_containers.join(', ') : 'None'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <script>
+      const inviteForm = document.getElementById('inviteForm');
+      const statusMsg = document.getElementById('statusMsg');
+
+      if (inviteForm) {
+        inviteForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const email = (document.getElementById('inviteEmail') as HTMLInputElement).value;
+          const role = (document.getElementById('inviteRole') as HTMLSelectElement).value;
+          const ram_mb = (document.getElementById('inviteRam') as HTMLInputElement).value;
+
+          try {
+            const res = await fetch('/api/users/invite', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email, role, quota_ram_mb: parseInt(ram_mb) })
+            });
+
+            const data = await res.json();
+            if (res.ok) {
+              statusMsg.style.color = '#4ade80';
+              statusMsg.textContent = `✓ ${data.message}`;
+              setTimeout(() => window.location.reload(), 1200);
+            } else {
+              statusMsg.style.color = '#fca5a5';
+              statusMsg.textContent = `⚠️ Error: ${data.description || data.title}`;
+            }
+          } catch (err) {
+            statusMsg.style.color = '#fca5a5';
+            statusMsg.textContent = `⚠️ Failed to invite user.`;
+          }
+        });
+      }
+    </script>
+  </body>
+</html>

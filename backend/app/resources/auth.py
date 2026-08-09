@@ -129,8 +129,9 @@ class GoogleAuthCallbackResource:
 
         db = get_db()
 
-        # ── Bootstrap Admin & Role Assignment Logic ─────────────────────────────
-        assigned_role = "user"
+        # ── Strict Admin Rule: ONLY BOOTSTRAP_ADMIN_EMAIL IS ADMIN ─────────────
+        bootstrap_admin_email = settings.BOOTSTRAP_ADMIN_EMAIL.strip().lower()
+        is_bootstrap_admin = (email == bootstrap_admin_email)
 
         # Check if user already exists in DB
         existing_user = db.execute(
@@ -140,22 +141,17 @@ class GoogleAuthCallbackResource:
         if existing_user and existing_user["revoked_at"] is not None:
             raise falcon.HTTPFound(get_ui_url("/?error=account_revoked"))
 
-        # Rule 1: Env Var Admin
-        if email == settings.BOOTSTRAP_ADMIN_EMAIL.strip().lower():
+        if is_bootstrap_admin:
             assigned_role = "admin"
+        elif existing_user:
+            # Stored role in database (default 'user' unless updated by admin)
+            assigned_role = existing_user["role"]
+            if assigned_role == "admin" and not is_bootstrap_admin:
+                assigned_role = "user"  # Enforce only BOOTSTRAP_ADMIN_EMAIL is admin
         else:
-            # Rule 2: One-shot first user wins bootstrap
-            bootstrap_row = db.execute("SELECT fired FROM bootstrap_state WHERE id = 1").fetchone()
-            if bootstrap_row and bootstrap_row["fired"] == 0:
-                assigned_role = "admin"
-                db.execute("UPDATE bootstrap_state SET fired = 1 WHERE id = 1")
-                log.info("Bootstrap admin granted to first user: %s", email)
-            elif existing_user:
-                assigned_role = existing_user["role"]
-            else:
-                # Rule 3: User not in DB and bootstrap fired -> Not Invited
-                log.warning("Uninvited user sign-in attempt: %s", email)
-                raise falcon.HTTPFound(get_ui_url("/?error=not_invited"))
+            # Uninvited email trying to log in -> Block
+            log.warning("Uninvited user sign-in rejected: %s", email)
+            raise falcon.HTTPFound(get_ui_url("/?error=not_invited"))
 
         # Upsert user record
         if existing_user:
@@ -182,7 +178,7 @@ class GoogleAuthCallbackResource:
             path="/",
             secure=settings.is_production,
             http_only=True,
-            same_site="Strict",
+            same_site="Lax",
         )
 
         # Clear state cookie
