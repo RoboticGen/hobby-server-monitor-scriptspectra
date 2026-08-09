@@ -31,6 +31,7 @@ from app.resources.users import (
     UserResource,
     UserAssignmentsResource,
 )
+from app.resources.terminal import TerminalExecResource
 
 
 class RootResource:
@@ -105,6 +106,12 @@ def create_app() -> falcon.App:
     # ── Metrics Endpoints ─────────────────────────────────────────────────────
     app.add_route("/api/metrics/{name}/live", MetricsLiveResource())
     app.add_route("/api/metrics/{name}/history", MetricsHistoryResource())
+
+    # ── Terminal Exec ─────────────────────────────────────────────────────────
+    # POST /api/terminal/{name}/exec
+    # Authenticated, authorized, audited command execution inside LXD containers.
+    # See backend/app/resources/terminal.py for full security design documentation.
+    app.add_route("/api/terminal/{name}/exec", TerminalExecResource())
 
     return app
 
