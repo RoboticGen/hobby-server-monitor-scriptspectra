@@ -41,13 +41,15 @@ try {
 }
 
 const isAdmin = user.role === 'admin';
+const quota = user.quotas || { ram_mb: 2048, cpu_cores: 2, disk_gb: 20 };
+const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{isAdmin ? 'Admin Dashboard' : 'User Dashboard'} — Server Monitor</title>
+    <title>{isAdmin ? 'Admin Dashboard' : 'User Dashboard'} � Server Monitor</title>
     <style>
       :root {
         --bg: #0d0f14;
@@ -166,6 +168,21 @@ const isAdmin = user.role === 'admin';
       .header-banner h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.3rem; }
       .header-banner p { color: var(--muted); font-size: 0.95rem; }
 
+      .quota-pills {
+        display: flex;
+        gap: 1rem;
+        margin-top: 0.75rem;
+        font-size: 0.85rem;
+      }
+      .quota-pill {
+        background: rgba(38, 43, 56, 0.6);
+        border: 1px solid var(--border);
+        padding: 0.3rem 0.75rem;
+        border-radius: 6px;
+        color: var(--muted);
+      }
+      .quota-pill strong { color: var(--text); }
+
       .action-bar {
         display: flex;
         align-items: center;
@@ -253,21 +270,6 @@ const isAdmin = user.role === 'admin';
         font-family: 'Courier New', monospace;
       }
       .btn-terminal:hover { background: rgba(99,102,241,0.25); border-color: rgba(99,102,241,0.6); }
-      .btn-metrics {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(34,197,94,0.08);
-        color: #4ade80;
-        border: 1px solid rgba(34,197,94,0.25);
-        padding: 0.35rem 0.75rem;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        text-decoration: none;
-        transition: background 0.15s, border-color 0.15s;
-      }
-      .btn-metrics:hover { background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.5); }
       .empty-state {
         background-color: var(--surface);
         border: 1px dashed var(--border);
@@ -282,7 +284,7 @@ const isAdmin = user.role === 'admin';
     <header>
       <div style="display: flex; align-items: center;">
         <div class="brand">
-          <div class="brand-icon">⚡</div>
+          <div class="brand-icon">?</div>
           <span>Server Monitor</span>
         </div>
         <nav class="nav-links">
@@ -316,6 +318,14 @@ const isAdmin = user.role === 'admin';
               ? 'Full control over LXD containers, hypervisor host allocations, and user accounts.'
               : 'View and manage your assigned LXD containers and resource quotas.'}
           </p>
+
+          {!isAdmin && (
+            <div class="quota-pills">
+              <div class="quota-pill">RAM: <strong>{used.ram_mb} / {quota.ram_mb} MB</strong></div>
+              <div class="quota-pill">CPU: <strong>{used.cpu_cores} / {quota.cpu_cores} Cores</strong></div>
+              <div class="quota-pill">Disk: <strong>{used.disk_gb} / {quota.disk_gb} GB</strong></div>
+            </div>
+          )}
         </div>
         <div>
           <span class={`badge ${isAdmin ? 'badge-admin' : 'badge-user'}`} style="font-size: 0.85rem; padding: 0.4rem 0.9rem;">
@@ -330,11 +340,9 @@ const isAdmin = user.role === 'admin';
           {isAdmin ? 'All Managed LXD Containers' : 'My Assigned Containers'}
         </h2>
 
-        {isAdmin && (
-          <a href="/containers/create" class="btn-primary">
-            <span>+</span> Create Container
-          </a>
-        )}
+        <a href="/containers/create" class="btn-primary">
+          <span>+</span> Create Container
+        </a>
       </div>
 
       <!-- Containers Grid -->
@@ -348,20 +356,20 @@ const isAdmin = user.role === 'admin';
                   {c.status}
                 </span>
               </div>
-              <p style="font-size: 0.88rem; color: var(--muted); line-height: 1.4;">
+              
+              <div style="font-size: 0.85rem; color: var(--muted); min-height: 2.2em;">
                 {c.description || 'No description provided.'}
-              </p>
-              <div class="limits-list">
-                <span>RAM: {c.limits.ram_mb} MB</span>
-                <span>CPU: {c.limits.cpu_cores} Core(s)</span>
-                <span>Disk: {c.limits.disk_gb} GB</span>
               </div>
+
+              <div class="limits-list">
+                <div>RAM: <strong>{c.limits?.ram_mb || 512} MB</strong></div>
+                <div>CPU: <strong>{c.limits?.cpu_cores || 1} Core</strong></div>
+                <div>Disk: <strong>{c.limits?.disk_gb || 5} GB</strong></div>
+              </div>
+
               <div class="card-actions">
-                <a href={`/terminal?container=${c.name}`} class="btn-terminal">
-                  &gt;_ Terminal
-                </a>
-                <a href={`/metrics?container=${c.name}`} class="btn-metrics">
-                  &#9685; Metrics
+                <a href={`/terminal?container=${encodeURIComponent(c.name)}`} class="btn-terminal">
+                  <span>>_</span> Terminal
                 </a>
               </div>
             </div>
@@ -369,12 +377,15 @@ const isAdmin = user.role === 'admin';
         </div>
       ) : (
         <div class="empty-state">
-          <p style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem;">No containers found</p>
-          <p style="font-size: 0.9rem;">
+          <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text);">No Containers Available</h3>
+          <p style="font-size: 0.9rem; margin-bottom: 1.5rem;">
             {isAdmin
-              ? 'Click "+ Create Container" above to provision a new LXD container.'
-              : 'You do not have any active container assignments. Contact an administrator for access.'}
+              ? 'Get started by creating your first LXD container.'
+              : 'You have no assigned LXD containers yet. Click below to create one within your quota budget.'}
           </p>
+          <a href="/containers/create" class="btn-primary">
+            <span>+</span> Create Container
+          </a>
         </div>
       )}
     </main>
@@ -384,15 +395,8 @@ const isAdmin = user.role === 'admin';
       if (logoutBtn) {
         logoutBtn.addEventListener('click', async () => {
           try {
-            const res = await fetch('/auth/logout', {
-              method: 'POST',
-              credentials: 'include'
-            });
-            if (res.ok) {
-              window.location.href = '/';
-            }
-          } catch (err) {
-            console.error('Logout error:', err);
+            await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+          } finally {
             window.location.href = '/';
           }
         });
