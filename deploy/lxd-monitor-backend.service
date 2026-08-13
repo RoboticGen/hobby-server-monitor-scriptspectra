@@ -1,25 +1,15 @@
-[Unit]
-Description=LXD Monitor Backend (Falcon + Gunicorn)
-After=network.target
+﻿[Unit]
+Description=Hobby Server Monitor - Falcon API Backend
+After=network.target lxd.service
 
 [Service]
-User=lxd-monitor
-Group=lxd
-WorkingDirectory=/opt/lxd-monitor/backend
-EnvironmentFile=/opt/lxd-monitor/.env
-ExecStart=/opt/lxd-monitor/venv/bin/gunicorn app.main:application \
-    --workers 2 \
-    --bind 0.0.0.0:8000 \
-    --timeout 60 \
-    --keep-alive 5 \
-    --log-level info \
-    --access-logfile - \
-    --error-logfile -
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=lxd-monitor-backend
+Type=simple
+User=sachini
+WorkingDirectory=/home/sachini/projects/hobby-server-monitor-scriptspectra/backend
+ExecStart=/home/sachini/projects/hobby-server-monitor-scriptspectra/backend/.venv/bin/gunicorn app.main:application -w 2 -b 0.0.0.0:8000
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
