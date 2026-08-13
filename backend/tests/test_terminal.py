@@ -21,19 +21,9 @@ from falcon import testing
 from unittest.mock import MagicMock, patch
 
 from app.main import create_app
-from app.db import _local
 
 
 # ── Shared test fixtures ───────────────────────────────────────────────────────
-
-@pytest.fixture(autouse=True)
-def clean_thread_local():
-    """Reset thread-local DB connection between tests."""
-    yield
-    if hasattr(_local, "conn") and _local.conn:
-        _local.conn.close()
-        del _local.conn
-
 
 @pytest.fixture
 def client():
