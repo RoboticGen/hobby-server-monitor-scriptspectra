@@ -1,21 +1,15 @@
-[Unit]
-Description=LXD Monitor Collector (independent metric poller)
-After=network.target
-# Intentionally does NOT depend on lxd-monitor-backend.
-# The collector runs independently — metric continuity is guaranteed
-# even while the backend restarts.
+﻿[Unit]
+Description=Hobby Server Monitor - LXD Metrics Collector Daemon
+After=network.target lxd.service
 
 [Service]
-User=lxd-monitor
-Group=lxd
-WorkingDirectory=/opt/lxd-monitor/backend
-EnvironmentFile=/opt/lxd-monitor/.env
-ExecStart=/opt/lxd-monitor/venv/bin/python -m collector.main
-Restart=on-failure
+Type=simple
+User=sachini
+WorkingDirectory=/home/sachini/projects/hobby-server-monitor-scriptspectra/backend
+ExecStart=/home/sachini/projects/hobby-server-monitor-scriptspectra/backend/.venv/bin/python -m collector.main
+Restart=always
 RestartSec=5
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=lxd-monitor-collector
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
