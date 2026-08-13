@@ -1,0 +1,395 @@
+---
+// dashboard/src/pages/containers/create.astro
+// Interactive container creation form with real-time quota bounds & validation
+const sessionCookie = Astro.cookies.get('session_token');
+
+if (!sessionCookie || !sessionCookie.value) {
+  return Astro.redirect('/');
+}
+
+let user = null;
+
+try {
+  const userRes = await fetch('http://localhost:8000/api/me', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+
+  if (!userRes.ok) return Astro.redirect('/');
+  const userData = await userRes.json();
+  user = userData.user;
+} catch (e) {
+  return Astro.redirect('/');
+}
+
+const isAdmin = user.role === 'admin';
+
+// User quotas vs current usage calculations
+const quota = user.quotas || { ram_mb: 2048, cpu_cores: 2, disk_gb: 20 };
+const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
+
+const maxRam = isAdmin ? 8192 : Math.max(128, quota.ram_mb - used.ram_mb);
+const maxCpu = isAdmin ? 8 : Math.max(1, quota.cpu_cores - used.cpu_cores);
+const maxDisk = isAdmin ? 100 : Math.max(1, quota.disk_gb - used.disk_gb);
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Create Container — Server Monitor</title>
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #161922;
+        --surface-hover: #1e2230;
+        --border: #262b38;
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #6366f1;
+        --accent-hover: #4f46e5;
+        --green: #22c55e;
+        --purple: #a855f7;
+        --amber: #f59e0b;
+        --red: #ef4444;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        min-height: 100vh;
+      }
+      header {
+        background-color: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        font-size: 1.2rem;
+      }
+      .brand-icon {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, var(--accent), var(--purple));
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.1rem;
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        margin-left: 2rem;
+      }
+      .nav-item {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: color 0.2s;
+      }
+      .nav-item:hover, .nav-item.active { color: var(--text); }
+      main {
+        max-width: 720px;
+        margin: 2.5rem auto;
+        padding: 0 1.5rem;
+      }
+      .card {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2rem;
+      }
+      .card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 1px solid var(--border);
+      }
+      .card-title { font-size: 1.3rem; font-weight: 700; }
+      .form-group {
+        margin-bottom: 1.5rem;
+      }
+      label {
+        display: block;
+        font-size: 0.88rem;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+        color: var(--text);
+      }
+      .label-desc {
+        font-size: 0.8rem;
+        color: var(--muted);
+        font-weight: 400;
+        margin-bottom: 0.5rem;
+      }
+      input[type="text"], select, textarea {
+        width: 100%;
+        background-color: #0d0f14;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.65rem 0.9rem;
+        color: var(--text);
+        font-size: 0.95rem;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+      input[type="text"]:focus, select:focus, textarea:focus {
+        border-color: var(--accent);
+      }
+      .slider-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+      input[type="range"] {
+        flex: 1;
+        accent-color: var(--accent);
+      }
+      .val-badge {
+        background: rgba(99, 102, 241, 0.15);
+        color: #a5b4fc;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        padding: 0.3rem 0.75rem;
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        min-width: 80px;
+        text-align: center;
+      }
+      .checkbox-wrap {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        cursor: pointer;
+      }
+      .checkbox-wrap input { width: 18px; height: 18px; accent-color: var(--accent); }
+      .quota-info {
+        background: rgba(38, 43, 56, 0.5);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.9rem 1.25rem;
+        margin-bottom: 1.5rem;
+        font-size: 0.85rem;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+      }
+      .quota-info strong { color: var(--text); }
+      .btn-submit {
+        background-color: var(--accent);
+        color: white;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: background-color 0.2s;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+      }
+      .btn-submit:hover { background-color: var(--accent-hover); }
+      .btn-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+      .error-banner {
+        background-color: rgba(239, 68, 68, 0.15);
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        color: #fca5a5;
+        padding: 0.9rem 1.25rem;
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+        display: none;
+      }
+      .spinner {
+        width: 18px;
+        height: 18px;
+        border: 2px solid rgba(255,255,255,0.3);
+        border-radius: 50%;
+        border-top-color: white;
+        animation: spin 0.8s linear infinite;
+        display: none;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <div class="brand-icon">?</div>
+        <span>Server Monitor</span>
+      </div>
+      <nav class="nav-links">
+        <a href="/dashboard" class="nav-item">Dashboard</a>
+        {isAdmin ? <a href="/users" class="nav-item">User Management</a> : <a href="/account" class="nav-item">My Quotas</a>}
+      </nav>
+    </header>
+
+    <main>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">Create New Container</div>
+          <a href="/dashboard" style="color: var(--muted); text-decoration: none; font-size: 0.88rem;">? Back to Dashboard</a>
+        </div>
+
+        <!-- Quota Summary Banner -->
+        {!isAdmin && (
+          <div class="quota-info">
+            <div>Available RAM: <strong>{maxRam} MB</strong></div>
+            <div>Available CPU: <strong>{maxCpu} Cores</strong></div>
+            <div>Available Disk: <strong>{maxDisk} GB</strong></div>
+          </div>
+        )}
+
+        <div id="errorBanner" class="error-banner"></div>
+
+        <form id="createForm">
+          <!-- Container Name -->
+          <div class="form-group">
+            <label for="name">Container Name *</label>
+            <div class="label-desc">Lowercase alphanumeric characters and hyphens only (e.g. <code>my-container-01</code>).</div>
+            <input type="text" id="name" required pattern="^[a-z][a-z0-9-]{0,61}[a-z0-9]$" placeholder="e.g. web-test-box" autofocus />
+          </div>
+
+          <!-- Base Image -->
+          <div class="form-group">
+            <label for="image">Base OS Image *</label>
+            <select id="image">
+              <option value="ubuntu/24.04">Ubuntu 24.04 LTS (Noble Numbat)</option>
+              <option value="ubuntu/22.04">Ubuntu 22.04 LTS (Jammy Jellyfish)</option>
+              <option value="ubuntu/20.04">Ubuntu 20.04 LTS (Focal Fossa)</option>
+            </select>
+          </div>
+
+          <!-- RAM Allocation -->
+          <div class="form-group">
+            <label for="ramMb">RAM Allocation (MB) *</label>
+            <div class="slider-row">
+              <input type="range" id="ramMb" min="128" max={maxRam} step="128" value={Math.min(512, maxRam)} />
+              <span class="val-badge" id="ramVal">512 MB</span>
+            </div>
+          </div>
+
+          <!-- CPU Cores -->
+          <div class="form-group">
+            <label for="cpuCores">CPU Core Count *</label>
+            <div class="slider-row">
+              <input type="range" id="cpuCores" min="1" max={maxCpu} step="1" value="1" />
+              <span class="val-badge" id="cpuVal">1 Core</span>
+            </div>
+          </div>
+
+          <!-- Disk Size -->
+          <div class="form-group">
+            <label for="diskGb">Disk Storage (GB) *</label>
+            <div class="slider-row">
+              <input type="range" id="diskGb" min="1" max={maxDisk} step="1" value={Math.min(5, maxDisk)} />
+              <span class="val-badge" id="diskVal">5 GB</span>
+            </div>
+          </div>
+
+          <!-- Auto-start toggle -->
+          <div class="form-group">
+            <label class="checkbox-wrap">
+              <input type="checkbox" id="autostart" checked />
+              <span>Start container automatically after creation (so it is ready for terminal exec)</span>
+            </label>
+          </div>
+
+          <!-- Description -->
+          <div class="form-group">
+            <label for="description">Description (Optional)</label>
+            <input type="text" id="description" placeholder="Brief note about purpose of this container..." />
+          </div>
+
+          <button type="submit" id="submitBtn" class="btn-submit">
+            <div class="spinner" id="spinner"></div>
+            <span id="btnLabel">Create Container</span>
+          </button>
+        </form>
+      </div>
+    </main>
+
+    <script>
+      const form = document.getElementById('createForm');
+      const errorBanner = document.getElementById('errorBanner');
+      const submitBtn = document.getElementById('submitBtn');
+      const spinner = document.getElementById('spinner');
+      const btnLabel = document.getElementById('btnLabel');
+
+      const ramMb = document.getElementById('ramMb');
+      const ramVal = document.getElementById('ramVal');
+      const cpuCores = document.getElementById('cpuCores');
+      const cpuVal = document.getElementById('cpuVal');
+      const diskGb = document.getElementById('diskGb');
+      const diskVal = document.getElementById('diskVal');
+
+      ramMb.addEventListener('input', () => { ramVal.textContent = `${ramMb.value} MB`; });
+      cpuCores.addEventListener('input', () => { cpuVal.textContent = `${cpuCores.value} ${cpuCores.value === '1' ? 'Core' : 'Cores'}`; });
+      diskGb.addEventListener('input', () => { diskVal.textContent = `${diskGb.value} GB`; });
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errorBanner.style.display = 'none';
+        submitBtn.disabled = true;
+        spinner.style.display = 'block';
+        btnLabel.textContent = 'Creating in LXD...';
+
+        const payload = {
+          name: document.getElementById('name').value.trim(),
+          image: document.getElementById('image').value,
+          ram_mb: parseInt(ramMb.value, 10),
+          cpu_cores: parseInt(cpuCores.value, 10),
+          disk_gb: parseInt(diskGb.value, 10),
+          autostart: document.getElementById('autostart').checked,
+          description: document.getElementById('description').value.trim()
+        };
+
+        try {
+          const res = await fetch('/api/containers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload)
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            const title = data.title || 'Creation Failed';
+            const desc = data.description || 'An unexpected error occurred.';
+            errorBanner.innerHTML = `<strong>${title}</strong>: ${desc}`;
+            errorBanner.style.display = 'block';
+            submitBtn.disabled = false;
+            spinner.style.display = 'none';
+            btnLabel.textContent = 'Create Container';
+          } else {
+            // Success! Redirect to terminal or dashboard
+            window.location.href = `/terminal?container=${encodeURIComponent(payload.name)}`;
+          }
+        } catch (err) {
+          errorBanner.innerHTML = `<strong>Network Error</strong>: ${String(err)}`;
+          errorBanner.style.display = 'block';
+          submitBtn.disabled = false;
+          spinner.style.display = 'none';
+          btnLabel.textContent = 'Create Container';
+        }
+      });
+    </script>
+  </body>
+</html>
