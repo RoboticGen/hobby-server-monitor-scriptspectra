@@ -1,6 +1,6 @@
----
+﻿---
 // dashboard/src/pages/users.astro
-// Admin-only user management page
+// Admin User Management & Host Capacity Dashboard
 const sessionCookie = Astro.cookies.get('session_token');
 
 if (!sessionCookie || !sessionCookie.value) {
@@ -8,8 +8,12 @@ if (!sessionCookie || !sessionCookie.value) {
 }
 
 let user = null;
-let userList = [];
+let usersList = [];
+let hostAccounting = null;
+let containersList = [];
+
 try {
+  // 1. Verify admin profile
   const userRes = await fetch('http://localhost:8000/api/me', {
     headers: { Cookie: `session_token=${sessionCookie.value}` }
   });
@@ -22,41 +26,64 @@ try {
     return Astro.redirect('/dashboard');
   }
 
-  // Fetch all users list
-  const listRes = await fetch('http://localhost:8000/api/users', {
+  // 2. Fetch user list with quotas & assignments
+  const usersRes = await fetch('http://localhost:8000/api/users', {
     headers: { Cookie: `session_token=${sessionCookie.value}` }
   });
-  if (listRes.ok) {
-    const listData = await listRes.json();
-    userList = listData.users || [];
+  if (usersRes.ok) {
+    const uData = await usersRes.json();
+    usersList = uData.users || [];
+  }
+
+  // 3. Fetch host capacity accounting
+  const hostRes = await fetch('http://localhost:8000/api/host', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+  if (hostRes.ok) {
+    hostAccounting = await hostRes.json();
+  }
+
+  // 4. Fetch container list for assignment selection
+  const cRes = await fetch('http://localhost:8000/api/containers', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+  if (cRes.ok) {
+    const cData = await cRes.json();
+    containersList = cData.containers || [];
   }
 } catch (err) {
-  return Astro.redirect('/');
+  return Astro.redirect('/dashboard');
 }
+
+const capacity = hostAccounting?.host_capacity || { ram_mb: 8192, cpu_cores: 8, disk_gb: 100 };
+const allocated = hostAccounting?.container_allocated || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>User Management — Server Monitor</title>
     <style>
       :root {
         --bg: #0d0f14;
         --surface: #161922;
+        --surface-hover: #1e2230;
         --border: #262b38;
         --text: #f3f4f6;
         --muted: #9ca3af;
         --accent: #6366f1;
         --accent-hover: #4f46e5;
-        --purple: #a855f7;
         --green: #22c55e;
+        --purple: #a855f7;
+        --amber: #f59e0b;
         --red: #ef4444;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
         background-color: var(--bg);
         color: var(--text);
-        font-family: system-ui, -apple-system, sans-serif;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         min-height: 100vh;
       }
       header {
@@ -67,180 +94,557 @@ try {
         align-items: center;
         justify-content: space-between;
       }
-      .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; }
-      .brand-icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), var(--purple)); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; }
-      .nav-links { display: flex; align-items: center; gap: 1.5rem; margin-left: 2rem; }
-      .nav-item { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; }
-      .nav-item:hover, .nav-item.active { color: var(--text); }
-      main { max-width: 1150px; margin: 2.5rem auto; padding: 0 1.5rem; }
-      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; }
-
-      .form-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin-top: 1.25rem;
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        font-size: 1.2rem;
       }
-      input, select {
-        background: #0f1117;
-        border: 1px solid var(--border);
-        color: var(--text);
-        padding: 0.65rem 0.9rem;
-        border-radius: 6px;
+      .brand-icon {
+        width: 32px;
+        height: 32px;
+        background: linear-gradient(135deg, var(--accent), var(--purple));
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 1.1rem;
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        margin-left: 2rem;
+      }
+      .nav-item {
+        color: var(--muted);
+        text-decoration: none;
         font-size: 0.9rem;
-        width: 100%;
+        font-weight: 500;
+        transition: color 0.2s;
       }
-      .btn {
+      .nav-item:hover, .nav-item.active { color: var(--text); }
+      main {
+        max-width: 1150px;
+        margin: 2rem auto;
+        padding: 0 1.5rem;
+      }
+      .host-banner {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.75rem 2rem;
+        margin-bottom: 2rem;
+      }
+      .host-banner h1 { font-size: 1.4rem; font-weight: 700; margin-bottom: 0.4rem; }
+      .host-banner p { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.25rem; }
+      .host-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.25rem;
+      }
+      .stat-box {
+        background: rgba(13, 15, 20, 0.6);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+      }
+      .stat-label { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem; }
+      .stat-val { font-size: 1.2rem; font-weight: 700; color: var(--text); }
+      .progress-bar {
+        height: 6px;
+        background: #262b38;
+        border-radius: 999px;
+        margin-top: 0.5rem;
+        overflow: hidden;
+      }
+      .progress-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+
+      .section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1.25rem;
+      }
+      .btn-primary {
         background-color: var(--accent);
         color: white;
         border: none;
-        padding: 0.65rem 1.25rem;
-        border-radius: 6px;
+        padding: 0.55rem 1.1rem;
+        border-radius: 8px;
         font-weight: 600;
-        font-size: 0.9rem;
+        font-size: 0.88rem;
         cursor: pointer;
+        transition: background-color 0.2s;
       }
-      .btn:hover { background-color: var(--accent-hover); }
+      .btn-primary:hover { background-color: var(--accent-hover); }
 
-      table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 1rem;
-        font-size: 0.9rem;
+      .user-card {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.25rem;
       }
-      th, td {
-        padding: 0.85rem 1rem;
-        text-align: left;
-        border-bottom: 1px solid var(--border);
+      .user-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
       }
-      th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+      .user-email { font-size: 1.05rem; font-weight: 700; }
       .badge {
         font-size: 0.75rem;
         font-weight: 700;
-        padding: 0.15rem 0.5rem;
+        padding: 0.25rem 0.65rem;
         border-radius: 999px;
         text-transform: uppercase;
       }
-      .badge-admin { background-color: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
-      .badge-user { background-color: rgba(99, 102, 241, 0.2); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.4); }
+      .badge-admin { background-color: rgba(168, 85, 247, 0.25); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.5); }
+      .badge-user { background-color: rgba(99, 102, 241, 0.25); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.5); }
+      .badge-revoked { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
+
+      .user-details {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+      }
+      .quota-specs { display: flex; gap: 1.5rem; font-size: 0.85rem; color: var(--muted); }
+      .quota-specs strong { color: var(--text); }
+
+      .assigned-pills { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.4rem; }
+      .ct-pill {
+        background: rgba(99, 102, 241, 0.15);
+        color: #a5b4fc;
+        border: 1px solid rgba(99, 102, 241, 0.3);
+        padding: 0.2rem 0.65rem;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+      }
+      .btn-revoke-ct {
+        background: none; border: none; color: #fca5a5; cursor: pointer; font-weight: 700; font-size: 0.85rem;
+      }
+
+      .user-actions { display: flex; gap: 0.6rem; align-items: center; justify-content: flex-end; }
+      .btn-sm {
+        padding: 0.4rem 0.85rem;
+        border-radius: 6px;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        background: #1e2230;
+        color: var(--text);
+        transition: all 0.2s;
+      }
+      .btn-sm:hover { background: #262b38; }
+      .btn-danger { background: rgba(239, 68, 68, 0.15); color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); }
+      .btn-danger:hover { background: rgba(239, 68, 68, 0.3); }
+
+      /* Modal Styling */
+      .modal-overlay {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.75);
+        display: none; align-items: center; justify-content: center; z-index: 1000;
+      }
+      .modal {
+        background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+        padding: 2rem; width: 100%; max-width: 500px;
+      }
+      .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+      .modal-title { font-size: 1.15rem; font-weight: 700; }
+      .close-btn { background: none; border: none; color: var(--muted); font-size: 1.4rem; cursor: pointer; }
+      .form-group { margin-bottom: 1.25rem; }
+      .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; }
+      .form-group input, .form-group select {
+        width: 100%; background: #0d0f14; border: 1px solid var(--border);
+        border-radius: 6px; padding: 0.6rem 0.8rem; color: var(--text); outline: none;
+      }
+      .error-msg { background: rgba(239, 68, 68, 0.15); color: #fca5a5; padding: 0.75rem; border-radius: 6px; font-size: 0.85rem; margin-bottom: 1rem; display: none; }
     </style>
   </head>
   <body>
     <header>
-      <div style="display: flex; align-items: center;">
-        <div class="brand">
-          <div class="brand-icon">⚡</div>
-          <span>Server Monitor</span>
-        </div>
-        <nav class="nav-links">
-          <a href="/dashboard" class="nav-item">Dashboard</a>
-          <a href="/users" class="nav-item active">User Management</a>
-        </nav>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <span>Server Monitor</span>
       </div>
-      <div style="font-size: 0.9rem; font-weight: 600; color: #c084fc;">
-        ADMIN: {user.email}
-      </div>
+      <nav class="nav-links">
+        <a href="/dashboard" class="nav-item">Dashboard</a>
+        <a href="/users" class="nav-item active">User Management</a>
+      </nav>
     </header>
 
     <main>
-      <!-- Invite Form Card -->
-      <div class="card">
-        <h2 style="font-size: 1.3rem; margin-bottom: 0.3rem;">Invite New User</h2>
-        <p style="color: var(--muted); font-size: 0.9rem;">
-          Enter a Google account email address below. Once invited, that user will be able to log in with Google and receive a <strong>User</strong> dashboard view.
-        </p>
+      <!-- Host Accounting Banner -->
+      <div class="host-banner">
+        <h1>Host Capacity Accounting</h1>
+        <p>Physical hardware capacity vs. allocated container resource limits across the server hypervisor.</p>
 
-        <form id="inviteForm" class="form-grid">
-          <div>
-            <label style="font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem;">User Google Email</label>
-            <input type="email" id="inviteEmail" placeholder="user@gmail.com" required />
+        <div class="host-grid">
+          <div class="stat-box">
+            <div class="stat-label">RAM Allocated</div>
+            <div class="stat-val">{allocated.ram_mb} / {capacity.ram_mb} MB</div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${Math.min(100, (allocated.ram_mb / capacity.ram_mb) * 100)}%;`}></div>
+            </div>
           </div>
-          <div>
-            <label style="font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem;">Role</label>
+
+          <div class="stat-box">
+            <div class="stat-label">CPU Cores Allocated</div>
+            <div class="stat-val">{allocated.cpu_cores} / {capacity.cpu_cores} Cores</div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${Math.min(100, (allocated.cpu_cores / capacity.cpu_cores) * 100)}%;`}></div>
+            </div>
+          </div>
+
+          <div class="stat-box">
+            <div class="stat-label">Disk Storage Allocated</div>
+            <div class="stat-val">{allocated.disk_gb} / {capacity.disk_gb} GB</div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${Math.min(100, (allocated.disk_gb / capacity.disk_gb) * 100)}%;`}></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- User List Header -->
+      <div class="section-header">
+        <h2 style="font-size: 1.25rem; font-weight: 700;">Organization Users ({usersList.length})</h2>
+        <button id="openInviteModal" class="btn-primary">+ Invite User</button>
+      </div>
+
+      <!-- User Cards -->
+      {usersList.map((u) => (
+        <div class="user-card">
+          <div class="user-header">
+            <div>
+              <span class="user-email">{u.email}</span>
+              {u.name && <span style="color: var(--muted); font-size: 0.88rem; margin-left: 0.5rem;">({u.name})</span>}
+            </div>
+            <div>
+              {u.is_revoked ? (
+                <span class="badge badge-revoked">REVOKED</span>
+              ) : (
+                <span class={`badge ${u.role === 'admin' ? 'badge-admin' : 'badge-user'}`}>{u.role}</span>
+              )}
+            </div>
+          </div>
+
+          <div class="user-details">
+            <div>
+              <div class="quota-specs">
+                <div>RAM Quota: <strong>{u.used?.ram_mb || 0} / {u.quotas?.ram_mb} MB</strong></div>
+                <div>CPU Quota: <strong>{u.used?.cpu_cores || 0} / {u.quotas?.cpu_cores} Cores</strong></div>
+                <div>Disk Quota: <strong>{u.used?.disk_gb || 0} / {u.quotas?.disk_gb} GB</strong></div>
+              </div>
+
+              <div style="margin-top: 0.9rem;">
+                <div style="font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem;">Assigned Containers:</div>
+                <div class="assigned-pills">
+                  {u.assigned_containers && u.assigned_containers.length > 0 ? (
+                    u.assigned_containers.map((ctName) => (
+                      <span class="ct-pill">
+                        {ctName}
+                        {!u.is_revoked && (
+                          <button class="btn-revoke-ct" data-user-id={u.id} data-ct-name={ctName} title="Revoke assignment">×</button>
+                        )}
+                      </span>
+                    ))
+                  ) : (
+                    <span style="font-size: 0.8rem; color: var(--muted); italic;">No containers assigned</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div class="user-actions">
+              {!u.is_revoked && (
+                <>
+                  <button class="btn-sm open-assign-modal" data-user-id={u.id} data-user-email={u.email}>Assign Container</button>
+                  <button class="btn-sm open-edit-modal" data-user-id={u.id} data-user-email={u.email} data-ram={u.quotas?.ram_mb} data-cpu={u.quotas?.cpu_cores} data-disk={u.quotas?.disk_gb} data-role={u.role}>Edit Quotas</button>
+                  <button class="btn-sm btn-danger revoke-user-btn" data-user-id={u.id} data-user-email={u.email}>Revoke</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </main>
+
+    <!-- Invite User Modal -->
+    <div id="inviteModal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Invite New User</div>
+          <button class="close-btn" id="closeInviteModal">&times;</button>
+        </div>
+        <div id="inviteError" class="error-msg"></div>
+        <form id="inviteForm">
+          <div class="form-group">
+            <label>Google Account Email *</label>
+            <input type="email" id="inviteEmail" required placeholder="user@gmail.com" />
+          </div>
+          <div class="form-group">
+            <label>Role *</label>
             <select id="inviteRole">
-              <option value="user">User (Standard)</option>
+              <option value="user">Container User</option>
               <option value="admin">Administrator</option>
             </select>
           </div>
-          <div>
-            <label style="font-size: 0.8rem; color: var(--muted); display: block; margin-bottom: 0.3rem;">RAM Quota (MB)</label>
-            <input type="number" id="inviteRam" value="2048" required />
+          <div class="form-group">
+            <label>RAM Quota (MB)</label>
+            <input type="number" id="inviteRam" value="2048" min="256" step="128" />
           </div>
-          <div style="display: flex; align-items: flex-end;">
-            <button type="submit" class="btn" style="width: 100%;">Send Invitation</button>
+          <div class="form-group">
+            <label>CPU Cores Quota</label>
+            <input type="number" id="inviteCpu" value="2" min="1" step="1" />
           </div>
+          <div class="form-group">
+            <label>Disk Storage Quota (GB)</label>
+            <input type="number" id="inviteDisk" value="20" min="1" step="1" />
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; padding: 0.75rem;">Invite User</button>
         </form>
-        <div id="statusMsg" style="margin-top: 1rem; font-size: 0.9rem;"></div>
       </div>
+    </div>
 
-      <!-- Users Table -->
-      <div class="card">
-        <h2 style="font-size: 1.3rem; margin-bottom: 1rem;">Registered & Invited Users</h2>
-
-        <table>
-          <thead>
-            <tr>
-              <th>User Email</th>
-              <th>Role</th>
-              <th>RAM Quota</th>
-              <th>CPU Quota</th>
-              <th>Disk Quota</th>
-              <th>Assigned Containers</th>
-            </tr>
-          </thead>
-          <tbody>
-            {userList.map((u) => (
-              <tr>
-                <td style="font-weight: 600;">{u.email}</td>
-                <td>
-                  <span class={`badge ${u.role === 'admin' ? 'badge-admin' : 'badge-user'}`}>
-                    {u.role}
-                  </span>
-                </td>
-                <td>{u.quotas.ram_mb} MB</td>
-                <td>{u.quotas.cpu_cores} Core(s)</td>
-                <td>{u.quotas.disk_gb} GB</td>
-                <td>{u.assigned_containers.length > 0 ? u.assigned_containers.join(', ') : 'None'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <!-- Edit User Quota Modal -->
+    <div id="editModal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title" id="editModalTitle">Edit User Quotas</div>
+          <button class="close-btn" id="closeEditModal">&times;</button>
+        </div>
+        <div id="editError" class="error-msg"></div>
+        <form id="editForm">
+          <input type="hidden" id="editUserId" />
+          <div class="form-group">
+            <label>Role</label>
+            <select id="editRole">
+              <option value="user">Container User</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>RAM Quota (MB)</label>
+            <input type="number" id="editRam" min="256" step="128" />
+          </div>
+          <div class="form-group">
+            <label>CPU Cores Quota</label>
+            <input type="number" id="editCpu" min="1" step="1" />
+          </div>
+          <div class="form-group">
+            <label>Disk Storage Quota (GB)</label>
+            <input type="number" id="editDisk" min="1" step="1" />
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; padding: 0.75rem;">Save Changes</button>
+        </form>
       </div>
-    </main>
+    </div>
+
+    <!-- Assign Container Modal -->
+    <div id="assignModal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title" id="assignModalTitle">Assign Container</div>
+          <button class="close-btn" id="closeAssignModal">&times;</button>
+        </div>
+        <div id="assignError" class="error-msg"></div>
+        <form id="assignForm">
+          <input type="hidden" id="assignUserId" />
+          <div class="form-group">
+            <label>Select Active Container *</label>
+            <select id="assignCtName" required>
+              {containersList.map((c) => (
+                <option value={c.name}>{c.name} ({c.limits?.ram_mb}MB RAM / {c.limits?.cpu_cores} Core / {c.limits?.disk_gb}GB Disk)</option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; padding: 0.75rem;">Grant Access</button>
+        </form>
+      </div>
+    </div>
 
     <script>
-      const inviteForm = document.getElementById('inviteForm');
-      const statusMsg = document.getElementById('statusMsg');
+      // Modal controls
+      const inviteModal = document.getElementById('inviteModal');
+      const editModal = document.getElementById('editModal');
+      const assignModal = document.getElementById('assignModal');
 
-      if (inviteForm) {
-        inviteForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-          const email = (document.getElementById('inviteEmail') as HTMLInputElement).value;
-          const role = (document.getElementById('inviteRole') as HTMLSelectElement).value;
-          const ram_mb = (document.getElementById('inviteRam') as HTMLInputElement).value;
+      document.getElementById('openInviteModal').addEventListener('click', () => { inviteModal.style.display = 'flex'; });
+      document.getElementById('closeInviteModal').addEventListener('click', () => { inviteModal.style.display = 'none'; });
+      document.getElementById('closeEditModal').addEventListener('click', () => { editModal.style.display = 'none'; });
+      document.getElementById('closeAssignModal').addEventListener('click', () => { assignModal.style.display = 'none'; });
 
-          try {
-            const res = await fetch('/api/users/invite', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email, role, quota_ram_mb: parseInt(ram_mb) })
-            });
+      // Invite User Form Submit
+      document.getElementById('inviteForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const errDiv = document.getElementById('inviteError');
+        errDiv.style.display = 'none';
 
-            const data = await res.json();
-            if (res.ok) {
-              statusMsg.style.color = '#4ade80';
-              statusMsg.textContent = `✓ ${data.message}`;
-              setTimeout(() => window.location.reload(), 1200);
-            } else {
-              statusMsg.style.color = '#fca5a5';
-              statusMsg.textContent = `⚠️ Error: ${data.description || data.title}`;
+        const payload = {
+          email: document.getElementById('inviteEmail').value.trim(),
+          role: document.getElementById('inviteRole').value,
+          quota_ram_mb: parseInt(document.getElementById('inviteRam').value, 10),
+          quota_cpu_cores: parseInt(document.getElementById('inviteCpu').value, 10),
+          quota_disk_gb: parseInt(document.getElementById('inviteDisk').value, 10)
+        };
+
+        try {
+          const res = await fetch('/api/users/invite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            errDiv.textContent = `${data.title || 'Error'}: ${data.description || 'Failed'}`;
+            errDiv.style.display = 'block';
+          } else {
+            window.location.reload();
+          }
+        } catch (err) {
+          errDiv.textContent = String(err);
+          errDiv.style.display = 'block';
+        }
+      });
+
+      // Edit Quotas Handler
+      document.querySelectorAll('.open-edit-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const uId = btn.getAttribute('data-user-id');
+          const email = btn.getAttribute('data-user-email');
+          document.getElementById('editUserId').value = uId;
+          document.getElementById('editModalTitle').textContent = `Edit Quotas: ${email}`;
+          document.getElementById('editRole').value = btn.getAttribute('data-role');
+          document.getElementById('editRam').value = btn.getAttribute('data-ram');
+          document.getElementById('editCpu').value = btn.getAttribute('data-cpu');
+          document.getElementById('editDisk').value = btn.getAttribute('data-disk');
+          editModal.style.display = 'flex';
+        });
+      });
+
+      document.getElementById('editForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const uId = document.getElementById('editUserId').value;
+        const errDiv = document.getElementById('editError');
+        errDiv.style.display = 'none';
+
+        const payload = {
+          role: document.getElementById('editRole').value,
+          quota_ram_mb: parseInt(document.getElementById('editRam').value, 10),
+          quota_cpu_cores: parseInt(document.getElementById('editCpu').value, 10),
+          quota_disk_gb: parseInt(document.getElementById('editDisk').value, 10)
+        };
+
+        try {
+          const res = await fetch(`/api/users/${uId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload)
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            errDiv.textContent = `${data.title || 'Error'}: ${data.description || 'Failed'}`;
+            errDiv.style.display = 'block';
+          } else {
+            window.location.reload();
+          }
+        } catch (err) {
+          errDiv.textContent = String(err);
+          errDiv.style.display = 'block';
+        }
+      });
+
+      // Assign Container Handler
+      document.querySelectorAll('.open-assign-modal').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const uId = btn.getAttribute('data-user-id');
+          const email = btn.getAttribute('data-user-email');
+          document.getElementById('assignUserId').value = uId;
+          document.getElementById('assignModalTitle').textContent = `Assign Container to ${email}`;
+          assignModal.style.display = 'flex';
+        });
+      });
+
+      document.getElementById('assignForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const uId = document.getElementById('assignUserId').value;
+        const ctName = document.getElementById('assignCtName').value;
+        const errDiv = document.getElementById('assignError');
+        errDiv.style.display = 'none';
+
+        try {
+          const res = await fetch(`/api/users/${uId}/assignments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ container_name: ctName })
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            errDiv.textContent = `${data.title || 'Error'}: ${data.description || 'Failed'}`;
+            errDiv.style.display = 'block';
+          } else {
+            window.location.reload();
+          }
+        } catch (err) {
+          errDiv.textContent = String(err);
+          errDiv.style.display = 'block';
+        }
+      });
+
+      // Revoke Assignment Handler
+      document.querySelectorAll('.btn-revoke-ct').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const uId = btn.getAttribute('data-user-id');
+          const ctName = btn.getAttribute('data-ct-name');
+
+          if (confirm(`Revoke access to '${ctName}' from this user?`)) {
+            try {
+              await fetch(`/api/users/${uId}/assignments/${encodeURIComponent(ctName)}`, {
+                method: 'DELETE',
+                credentials: 'include'
+              });
+              window.location.reload();
+            } catch (err) {
+              alert(String(err));
             }
-          } catch (err) {
-            statusMsg.style.color = '#fca5a5';
-            statusMsg.textContent = `⚠️ Failed to invite user.`;
           }
         });
-      }
+      });
+
+      // Revoke User Access Handler
+      document.querySelectorAll('.revoke-user-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const uId = btn.getAttribute('data-user-id');
+          const email = btn.getAttribute('data-user-email');
+
+          if (confirm(`Are you sure you want to revoke access for '${email}'? They will no longer be able to log in.`)) {
+            try {
+              const res = await fetch(`/api/users/${uId}`, {
+                method: 'DELETE',
+                credentials: 'include'
+              });
+              if (res.ok) window.location.reload();
+              else alert('Failed to revoke user.');
+            } catch (err) {
+              alert(String(err));
+            }
+          }
+        });
+      });
     </script>
   </body>
 </html>
