@@ -2,7 +2,7 @@
 backend/app/resources/containers.py
 
 Falcon API endpoints for LXD container lifecycle management:
-- GET /api/containers          -> List non-deleted containers
+- GET /api/containers          -> List non-deleted containers (role-filtered)
 - POST /api/containers         -> Create container with full validation & quota checks
 - GET /api/containers/{name}   -> Detail view combining DB record and live LXD state
 - PATCH /api/containers/{name} -> Update description / limits
@@ -39,12 +39,23 @@ class ContainerCollection:
         """
         List all non-deleted containers.
         Combines DB records with runtime state from LXD.
+        Role-filtered: Users see only assigned containers; Admins see all.
         """
         db = get_db()
 
-        # Query all containers in DB that are not soft-deleted
-        query = "SELECT name, description, created_by, ram_mb, cpu_cores, disk_gb, created_at FROM containers WHERE deleted_at IS NULL ORDER BY created_at DESC"
-        db_containers = db.execute(query).fetchall()
+        user = getattr(req.context, "user", None)
+        if user and user.get("role") != "admin":
+            query = """
+                SELECT c.name, c.description, c.created_by, c.ram_mb, c.cpu_cores, c.disk_gb, c.created_at 
+                FROM containers c
+                JOIN assignments a ON c.name = a.container_name
+                WHERE a.user_id = ? AND a.revoked_at IS NULL AND c.deleted_at IS NULL
+                ORDER BY c.created_at DESC
+            """
+            db_containers = db.execute(query, (user["id"],)).fetchall()
+        else:
+            query = "SELECT name, description, created_by, ram_mb, cpu_cores, disk_gb, created_at FROM containers WHERE deleted_at IS NULL ORDER BY created_at DESC"
+            db_containers = db.execute(query).fetchall()
 
         client = get_client()
         lxd_containers_list, err = lxd_safe(lambda: client.containers.all())
@@ -91,18 +102,19 @@ class ContainerCollection:
         Create a new LXD container with validation pipeline:
         1. Validate payload and name regex
         2. Verify DB and LXD uniqueness
-        3. Image alias availability check
-        4. User resource quota check (dynamic RAM, CPU, Disk)
-        5. Create container in LXD via pylxd
-        6. Record in DB with dynamic limit values and write audit log
+        3. User resource quota check (dynamic RAM, CPU, Disk)
+        4. Create container in LXD via pylxd (with local image fallback)
+        5. Auto-start container if autostart=True
+        6. Record in DB, auto-assign to creator, and write audit log
         """
         data = req.media or {}
         raw_name = data.get("name", "")
         description = data.get("description", "")
-        image_alias = data.get("image", "ubuntu/22.04") # default image alias
+        image_alias = data.get("image", "ubuntu/24.04")
         ram_mb = int(data.get("ram_mb", 512))
         cpu_cores = int(data.get("cpu_cores", 1))
         disk_gb = int(data.get("disk_gb", 5))
+        autostart = bool(data.get("autostart", True))
 
         # 1. Name validation
         name = validate_container_name(raw_name)
@@ -135,8 +147,9 @@ class ContainerCollection:
                 description=f"A container named '{name}' already exists on the LXD host."
             )
 
-        # 4. Dynamic Quota check (stub user_id = 1 if unauthenticated req during Phase 2)
-        actor_id = getattr(req.context, "user", {}).get("id", 1) if hasattr(req.context, "user") else 1
+        # 4. Dynamic Quota check
+        user = getattr(req.context, "user", None)
+        actor_id = user["id"] if user else 1
         check_quota(db, actor_id, req_ram_mb=ram_mb, req_cpu_cores=cpu_cores, req_disk_gb=disk_gb)
 
         # 5. Create container in LXD
@@ -153,25 +166,45 @@ class ContainerCollection:
         }
 
         created_ct, create_err = lxd_safe(lambda: client.containers.create(config, wait=True))
+        
+        # Fallback to local image fingerprint if alias resolution fails
         if create_err:
+            local_imgs, _ = lxd_safe(lambda: client.images.all())
+            if local_imgs:
+                fp = local_imgs[0].fingerprint
+                config["source"] = {"type": "image", "fingerprint": fp}
+                created_ct, create_err = lxd_safe(lambda: client.containers.create(config, wait=True))
+
+        if create_err or not created_ct:
             raise falcon.HTTPBadRequest(
                 title="Container Creation Failed",
-                description=f"LXD failed to create container: {create_err}"
+                description=f"LXD failed to create container '{name}': {create_err}"
             )
 
-        # 6. Insert into DB with dynamic allocations and write audit log
+        # 6. Auto-start if requested
+        if autostart and created_ct.status != "Running":
+            lxd_safe(lambda: created_ct.start(wait=True))
+            created_ct, _ = lxd_safe(lambda: client.containers.get(name))
+
+        # 7. Insert into DB, auto-assign to actor, and write audit log
         db.execute(
             "INSERT INTO containers (name, description, created_by, ram_mb, cpu_cores, disk_gb) VALUES (?, ?, ?, ?, ?, ?)",
             (name, description, actor_id, ram_mb, cpu_cores, disk_gb)
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO assignments (user_id, container_name) VALUES (?, ?)",
+            (actor_id, name)
         )
         write_audit_log(
             db,
             actor_id=actor_id,
             action="container.create",
             target=name,
-            detail={"image": image_alias, "ram_mb": ram_mb, "cpu_cores": cpu_cores, "disk_gb": disk_gb}
+            detail={"image": image_alias, "ram_mb": ram_mb, "cpu_cores": cpu_cores, "disk_gb": disk_gb, "autostart": autostart}
         )
         db.commit()
+
+        final_status = created_ct.status if created_ct else ("Running" if autostart else "Stopped")
 
         resp.status = falcon.HTTP_201
         resp.media = {
@@ -179,7 +212,7 @@ class ContainerCollection:
             "container": {
                 "name": name,
                 "description": description,
-                "status": created_ct.status if created_ct else "Stopped",
+                "status": final_status,
                 "image": image_alias,
                 "limits": {
                     "ram_mb": ram_mb,

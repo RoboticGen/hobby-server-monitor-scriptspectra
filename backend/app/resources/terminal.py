@@ -203,7 +203,7 @@ class TerminalExecResource:
         exec_result, exec_err = lxd_safe(
             lambda: ct_obj.execute(
                 ["/bin/sh", "-c", command],
-                timeout=EXEC_TIMEOUT_SECONDS,
+                
             )
         )
 
@@ -247,3 +247,4 @@ class TerminalExecResource:
             "stderr": stderr,
             "truncated": truncated,
         }
+
