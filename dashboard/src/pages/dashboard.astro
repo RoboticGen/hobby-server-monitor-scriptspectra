@@ -1,6 +1,6 @@
----
+﻿---
 // dashboard/src/pages/dashboard.astro
-// SSR server-side session & role verification against Falcon backend
+// Real-time container control panel with lifecycle actions, limit tuning & metrics links
 const sessionCookie = Astro.cookies.get('session_token');
 
 if (!sessionCookie || !sessionCookie.value) {
@@ -13,23 +13,16 @@ let containers = [];
 try {
   // 1. Fetch authenticated user profile & role
   const userRes = await fetch('http://localhost:8000/api/me', {
-    headers: {
-      Cookie: `session_token=${sessionCookie.value}`
-    }
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
   });
 
-  if (!userRes.ok) {
-    return Astro.redirect('/');
-  }
-
+  if (!userRes.ok) return Astro.redirect('/');
   const userData = await userRes.json();
   user = userData.user;
 
   // 2. Fetch container list for role view
   const containersRes = await fetch('http://localhost:8000/api/containers', {
-    headers: {
-      Cookie: `session_token=${sessionCookie.value}`
-    }
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
   });
 
   if (containersRes.ok) {
@@ -49,7 +42,7 @@ const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{isAdmin ? 'Admin Dashboard' : 'User Dashboard'} � Server Monitor</title>
+    <title>{isAdmin ? 'Admin Control Panel' : 'My Containers'} — Server Monitor</title>
     <style>
       :root {
         --bg: #0d0f14;
@@ -80,245 +73,123 @@ const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
         align-items: center;
         justify-content: space-between;
       }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        font-weight: 700;
-        font-size: 1.2rem;
-      }
+      .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.2rem; }
       .brand-icon {
-        width: 32px;
-        height: 32px;
+        width: 32px; height: 32px;
         background: linear-gradient(135deg, var(--accent), var(--purple));
-        border-radius: 8px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-size: 1.1rem;
+        border-radius: 8px; display: flex; align-items: center; justify-content: center;
+        color: white; font-size: 1.1rem;
       }
-      .nav-links {
-        display: flex;
-        align-items: center;
-        gap: 1.5rem;
-        margin-left: 2rem;
-      }
-      .nav-item {
-        color: var(--muted);
-        text-decoration: none;
-        font-size: 0.9rem;
-        font-weight: 500;
-        transition: color 0.2s;
-      }
-      .nav-item:hover, .nav-item.active {
-        color: var(--text);
-      }
-      .user-profile {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-      }
-      .avatar {
-        width: 36px;
-        height: 36px;
-        border-radius: 50%;
-        border: 2px solid var(--border);
-      }
+      .nav-links { display: flex; align-items: center; gap: 1.5rem; margin-left: 2rem; }
+      .nav-item { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; transition: color 0.2s; }
+      .nav-item:hover, .nav-item.active { color: var(--text); }
+      .user-profile { display: flex; align-items: center; gap: 1rem; }
+      .avatar { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border); }
       .badge {
-        font-size: 0.75rem;
-        font-weight: 700;
-        padding: 0.2rem 0.65rem;
-        border-radius: 999px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
+        font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.65rem; border-radius: 999px; text-transform: uppercase;
       }
       .badge-admin { background-color: rgba(168, 85, 247, 0.25); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.5); }
       .badge-user { background-color: rgba(99, 102, 241, 0.25); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.5); }
       .btn-logout {
-        background-color: transparent;
-        border: 1px solid var(--border);
-        color: var(--muted);
-        padding: 0.4rem 0.9rem;
-        border-radius: 6px;
-        font-size: 0.85rem;
-        cursor: pointer;
-        transition: all 0.2s;
+        background-color: transparent; border: 1px solid var(--border); color: var(--muted);
+        padding: 0.4rem 0.9rem; border-radius: 6px; font-size: 0.85rem; cursor: pointer; transition: all 0.2s;
       }
-      .btn-logout:hover {
-        background-color: #ef4444;
-        color: white;
-        border-color: #ef4444;
-      }
-      main {
-        max-width: 1150px;
-        margin: 2rem auto;
-        padding: 0 1.5rem;
-      }
+      .btn-logout:hover { background-color: #ef4444; color: white; border-color: #ef4444; }
+      main { max-width: 1150px; margin: 2rem auto; padding: 0 1.5rem; }
       .header-banner {
-        background-color: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.75rem 2rem;
-        margin-bottom: 2rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+        background-color: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+        padding: 1.75rem 2rem; margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between;
       }
       .header-banner h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.3rem; }
       .header-banner p { color: var(--muted); font-size: 0.95rem; }
-
-      .quota-pills {
-        display: flex;
-        gap: 1rem;
-        margin-top: 0.75rem;
-        font-size: 0.85rem;
-      }
-      .quota-pill {
-        background: rgba(38, 43, 56, 0.6);
-        border: 1px solid var(--border);
-        padding: 0.3rem 0.75rem;
-        border-radius: 6px;
-        color: var(--muted);
-      }
+      .quota-pills { display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.85rem; }
+      .quota-pill { background: rgba(38, 43, 56, 0.6); border: 1px solid var(--border); padding: 0.3rem 0.75rem; border-radius: 6px; color: var(--muted); }
       .quota-pill strong { color: var(--text); }
-
-      .action-bar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 1.5rem;
-      }
+      .action-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
       .btn-primary {
-        background-color: var(--accent);
-        color: white;
-        border: none;
-        padding: 0.6rem 1.25rem;
-        border-radius: 8px;
-        font-weight: 600;
-        font-size: 0.9rem;
-        text-decoration: none;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.5rem;
-        transition: background-color 0.2s;
+        background-color: var(--accent); color: white; border: none; padding: 0.6rem 1.25rem;
+        border-radius: 8px; font-weight: 600; font-size: 0.9rem; text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; transition: background-color 0.2s;
       }
       .btn-primary:hover { background-color: var(--accent-hover); }
 
-      .grid-container {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-        gap: 1.5rem;
-      }
-      .card {
-        background-color: var(--surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 1.5rem;
-        transition: border-color 0.2s;
-      }
+      .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1.5rem; }
+      .card { background-color: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; transition: border-color 0.2s; }
       .card:hover { border-color: #3b4254; }
-      .card-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 1rem;
-      }
+      .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
       .card-title { font-size: 1.1rem; font-weight: 700; color: var(--text); }
-      .status-badge {
-        font-size: 0.75rem;
-        font-weight: 600;
-        padding: 0.25rem 0.65rem;
-        border-radius: 999px;
-        display: inline-flex;
-        align-items: center;
-        gap: 0.4rem;
-      }
+      .status-badge { font-size: 0.75rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 999px; text-transform: uppercase; }
       .status-running { background-color: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); }
       .status-stopped { background-color: rgba(107, 114, 128, 0.15); color: #9ca3af; border: 1px solid rgba(107, 114, 128, 0.3); }
       .status-frozen { background-color: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
 
-      .limits-list {
-        display: flex;
-        gap: 1rem;
-        font-size: 0.85rem;
-        color: var(--muted);
-        margin-top: 1rem;
-        padding-top: 0.75rem;
-        border-top: 1px solid var(--border);
+      /* Action controls */
+      .action-btns { display: flex; gap: 0.4rem; margin-top: 0.9rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+      .btn-action {
+        padding: 0.35rem 0.7rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; cursor: pointer;
+        border: 1px solid var(--border); background: #1e2230; color: var(--text); transition: all 0.15s;
       }
-      .card-actions {
-        display: flex;
-        gap: 0.5rem;
-        margin-top: 1rem;
-        padding-top: 0.75rem;
-        border-top: 1px solid var(--border);
-      }
+      .btn-action:hover { background: #262b38; }
+      .btn-start { background: rgba(34, 197, 94, 0.12); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
+      .btn-stop { background: rgba(239, 68, 68, 0.12); color: #fca5a5; border-color: rgba(239, 68, 68, 0.3); }
+      .btn-restart { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
+      .btn-freeze { background: rgba(99, 102, 241, 0.12); color: #a5b4fc; border-color: rgba(99, 102, 241, 0.3); }
+
+      .card-links { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
       .btn-terminal {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        background: rgba(99,102,241,0.12);
-        color: #818cf8;
-        border: 1px solid rgba(99,102,241,0.3);
-        padding: 0.35rem 0.75rem;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        text-decoration: none;
-        transition: background 0.15s, border-color 0.15s;
-        font-family: 'Courier New', monospace;
+        display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(99,102,241,0.12); color: #818cf8;
+        border: 1px solid rgba(99,102,241,0.3); padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; text-decoration: none;
       }
-      .btn-terminal:hover { background: rgba(99,102,241,0.25); border-color: rgba(99,102,241,0.6); }
-      .empty-state {
-        background-color: var(--surface);
-        border: 1px dashed var(--border);
-        border-radius: 12px;
-        padding: 3rem;
-        text-align: center;
-        color: var(--muted);
+      .btn-metrics {
+        display: inline-flex; align-items: center; gap: 0.35rem; background: rgba(34,197,94,0.08); color: #4ade80;
+        border: 1px solid rgba(34,197,94,0.25); padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 600; text-decoration: none;
       }
+
+      /* Modal Styling */
+      .modal-overlay {
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.75); display: none; align-items: center; justify-content: center; z-index: 1000;
+      }
+      .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; width: 100%; max-width: 480px; }
+      .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+      .modal-title { font-size: 1.15rem; font-weight: 700; }
+      .close-btn { background: none; border: none; color: var(--muted); font-size: 1.4rem; cursor: pointer; }
+      .form-group { margin-bottom: 1.25rem; }
+      .form-group label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; }
+      .form-group input { width: 100%; background: #0d0f14; border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem 0.8rem; color: var(--text); outline: none; }
+      .error-msg { background: rgba(239, 68, 68, 0.15); color: #fca5a5; padding: 0.75rem; border-radius: 6px; font-size: 0.85rem; margin-bottom: 1rem; display: none; }
     </style>
   </head>
   <body>
     <header>
       <div style="display: flex; align-items: center;">
         <div class="brand">
-          <div class="brand-icon">?</div>
+          <div class="brand-icon">⚡</div>
           <span>Server Monitor</span>
         </div>
         <nav class="nav-links">
           <a href="/dashboard" class="nav-item active">Dashboard</a>
-          {isAdmin ? (
-            <a href="/users" class="nav-item">User Management</a>
-          ) : (
-            <a href="/account" class="nav-item">My Quotas</a>
-          )}
+          {isAdmin ? <a href="/users" class="nav-item">User Management</a> : <a href="/account" class="nav-item">My Quotas</a>}
         </nav>
       </div>
       <div class="user-profile">
         {user.picture_url && <img src={user.picture_url} alt={user.name} class="avatar" />}
         <div style="text-align: right;">
           <div style="font-weight: 600; font-size: 0.88rem;">{user.name || user.email}</div>
-          <span class={`badge ${isAdmin ? 'badge-admin' : 'badge-user'}`}>
-            {user.role}
-          </span>
+          <span class={`badge ${isAdmin ? 'badge-admin' : 'badge-user'}`}>{user.role}</span>
         </div>
         <button id="logoutBtn" class="btn-logout">Sign out</button>
       </div>
     </header>
 
     <main>
-      <!-- Role-Specific Banner -->
       <div class="header-banner">
         <div>
-          <h1>{isAdmin ? 'Administrator Dashboard' : 'User Container Dashboard'}</h1>
+          <h1>{isAdmin ? 'Administrator Control Panel' : 'My Containers Panel'}</h1>
           <p>
             {isAdmin
-              ? 'Full control over LXD containers, hypervisor host allocations, and user accounts.'
-              : 'View and manage your assigned LXD containers and resource quotas.'}
+              ? 'Full hypervisor control over LXD container lifecycles, resource limits, and user assignments.'
+              : 'View telemetry, launch terminal sessions, and manage assigned LXD container lifecycles.'}
           </p>
-
           {!isAdmin && (
             <div class="quota-pills">
               <div class="quota-pill">RAM: <strong>{used.ram_mb} / {quota.ram_mb} MB</strong></div>
@@ -334,18 +205,15 @@ const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
         </div>
       </div>
 
-      <!-- Action Bar -->
       <div class="action-bar">
         <h2 style="font-size: 1.25rem; font-weight: 700;">
           {isAdmin ? 'All Managed LXD Containers' : 'My Assigned Containers'}
         </h2>
-
         <a href="/containers/create" class="btn-primary">
           <span>+</span> Create Container
         </a>
       </div>
 
-      <!-- Containers Grid -->
       {containers.length > 0 ? (
         <div class="grid-container">
           {containers.map((c) => (
@@ -356,51 +224,193 @@ const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
                   {c.status}
                 </span>
               </div>
-              
+
               <div style="font-size: 0.85rem; color: var(--muted); min-height: 2.2em;">
                 {c.description || 'No description provided.'}
               </div>
 
-              <div class="limits-list">
-                <div>RAM: <strong>{c.limits?.ram_mb || 512} MB</strong></div>
-                <div>CPU: <strong>{c.limits?.cpu_cores || 1} Core</strong></div>
-                <div>Disk: <strong>{c.limits?.disk_gb || 5} GB</strong></div>
+              <div style="display: flex; gap: 1rem; font-size: 0.85rem; color: var(--muted); margin-top: 0.75rem;">
+                <div>RAM: <strong style="color:var(--text);">{c.limits?.ram_mb || 512} MB</strong></div>
+                <div>CPU: <strong style="color:var(--text);">{c.limits?.cpu_cores || 1} Core</strong></div>
+                <div>Disk: <strong style="color:var(--text);">{c.limits?.disk_gb || 5} GB</strong></div>
               </div>
 
-              <div class="card-actions">
+              <!-- Lifecycle Controls -->
+              <div class="action-btns">
+                {c.status !== 'Running' && (
+                  <button class="btn-action btn-start trigger-action" data-ct={c.name} data-action="start">▶ Start</button>
+                )}
+                {c.status === 'Running' && (
+                  <>
+                    <button class="btn-action btn-stop trigger-action" data-ct={c.name} data-action="stop">⏹ Stop</button>
+                    <button class="btn-action btn-restart trigger-action" data-ct={c.name} data-action="restart">🔄 Restart</button>
+                    <button class="btn-action btn-freeze trigger-action" data-ct={c.name} data-action="freeze">❄ Freeze</button>
+                  </>
+                )}
+                {c.status === 'Frozen' && (
+                  <button class="btn-action btn-start trigger-action" data-ct={c.name} data-action="unfreeze">🔥 Unfreeze</button>
+                )}
+              </div>
+
+              <!-- Navigation & Admin Options -->
+              <div class="card-links">
                 <a href={`/terminal?container=${encodeURIComponent(c.name)}`} class="btn-terminal">
                   <span>>_</span> Terminal
                 </a>
+                <a href={`/containers/detail?container=${encodeURIComponent(c.name)}`} class="btn-metrics">
+                  <span>📊</span> Metrics & Charts
+                </a>
+                {isAdmin && (
+                  <>
+                    <button class="btn-action open-edit-limits" data-ct={c.name} data-ram={c.limits?.ram_mb} data-cpu={c.limits?.cpu_cores} data-disk={c.limits?.disk_gb} title="Edit Limits">⚙️</button>
+                    <button class="btn-action btn-stop delete-ct-btn" data-ct={c.name} title="Delete Container">🗑️</button>
+                  </>
+                )}
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div class="empty-state">
+        <div style="background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; padding: 3rem; text-align: center; color: var(--muted);">
           <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: var(--text);">No Containers Available</h3>
           <p style="font-size: 0.9rem; margin-bottom: 1.5rem;">
-            {isAdmin
-              ? 'Get started by creating your first LXD container.'
-              : 'You have no assigned LXD containers yet. Click below to create one within your quota budget.'}
+            {isAdmin ? 'Provision your first LXD container to start monitoring.' : 'No containers assigned yet. Click below to create one.'}
           </p>
-          <a href="/containers/create" class="btn-primary">
-            <span>+</span> Create Container
-          </a>
+          <a href="/containers/create" class="btn-primary"><span>+</span> Create Container</a>
         </div>
       )}
     </main>
+
+    <!-- Edit Limits Modal -->
+    <div id="editLimitsModal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title" id="editLimitsTitle">Edit Limits</div>
+          <button class="close-btn" id="closeEditLimitsModal">&times;</button>
+        </div>
+        <div id="editLimitsError" class="error-msg"></div>
+        <form id="editLimitsForm">
+          <input type="hidden" id="editCtName" />
+          <div class="form-group">
+            <label>RAM Allocation (MB)</label>
+            <input type="number" id="editLimitRam" min="128" step="128" required />
+          </div>
+          <div class="form-group">
+            <label>CPU Cores</label>
+            <input type="number" id="editLimitCpu" min="1" step="1" required />
+          </div>
+          <div class="form-group">
+            <label>Disk Storage (GB)</label>
+            <input type="number" id="editLimitDisk" min="1" step="1" required />
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; padding: 0.75rem;">Update Limits</button>
+        </form>
+      </div>
+    </div>
 
     <script>
       const logoutBtn = document.getElementById('logoutBtn');
       if (logoutBtn) {
         logoutBtn.addEventListener('click', async () => {
-          try {
-            await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
-          } finally {
-            window.location.href = '/';
-          }
+          try { await fetch('/auth/logout', { method: 'POST', credentials: 'include' }); }
+          finally { window.location.href = '/'; }
         });
       }
+
+      // Lifecycle Action Handlers
+      document.querySelectorAll('.trigger-action').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const ctName = btn.getAttribute('data-ct');
+          const action = btn.getAttribute('data-action');
+          btn.disabled = true;
+          btn.textContent = '...';
+
+          try {
+            const res = await fetch(`/api/containers/${encodeURIComponent(ctName)}/action`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ action })
+            });
+            if (res.ok) window.location.reload();
+            else {
+              const data = await res.json();
+              alert(`Action Failed: ${data.description || 'Unknown'}`);
+              window.location.reload();
+            }
+          } catch (err) {
+            alert(String(err));
+            window.location.reload();
+          }
+        });
+      });
+
+      // Edit Limits Modal Handlers
+      const editLimitsModal = document.getElementById('editLimitsModal');
+      document.querySelectorAll('.open-edit-limits').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const ctName = btn.getAttribute('data-ct');
+          document.getElementById('editCtName').value = ctName;
+          document.getElementById('editLimitsTitle').textContent = `Resource Limits: ${ctName}`;
+          document.getElementById('editLimitRam').value = btn.getAttribute('data-ram');
+          document.getElementById('editLimitCpu').value = btn.getAttribute('data-cpu');
+          document.getElementById('editLimitDisk').value = btn.getAttribute('data-disk');
+          editLimitsModal.style.display = 'flex';
+        });
+      });
+      document.getElementById('closeEditLimitsModal').addEventListener('click', () => { editLimitsModal.style.display = 'none'; });
+
+      document.getElementById('editLimitsForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const ctName = document.getElementById('editCtName').value;
+        const errDiv = document.getElementById('editLimitsError');
+        errDiv.style.display = 'none';
+
+        const payload = {
+          ram_mb: parseInt(document.getElementById('editLimitRam').value, 10),
+          cpu_cores: parseInt(document.getElementById('editLimitCpu').value, 10),
+          disk_gb: parseInt(document.getElementById('editLimitDisk').value, 10)
+        };
+
+        try {
+          const res = await fetch(`/api/containers/${encodeURIComponent(ctName)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload)
+          });
+          if (res.ok) window.location.reload();
+          else {
+            const data = await res.json();
+            errDiv.textContent = `${data.title || 'Error'}: ${data.description || 'Failed'}`;
+            errDiv.style.display = 'block';
+          }
+        } catch (err) {
+          errDiv.textContent = String(err);
+          errDiv.style.display = 'block';
+        }
+      });
+
+      // Delete Container Handler
+      document.querySelectorAll('.delete-ct-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const ctName = btn.getAttribute('data-ct');
+          if (confirm(`Are you sure you want to delete '${ctName}'? This will stop the container, delete it in LXD, and soft-delete in DB.`)) {
+            try {
+              const res = await fetch(`/api/containers/${encodeURIComponent(ctName)}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ confirm: true })
+              });
+              if (res.ok) window.location.reload();
+              else alert('Failed to delete container.');
+            } catch (err) {
+              alert(String(err));
+            }
+          }
+        });
+      });
     </script>
   </body>
 </html>
