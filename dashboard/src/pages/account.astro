@@ -1,6 +1,6 @@
----
+﻿---
 // dashboard/src/pages/account.astro
-// User account & quota overview page
+// Container User "My Quotas" and Assigned Containers View
 const sessionCookie = Astro.cookies.get('session_token');
 
 if (!sessionCookie || !sessionCookie.value) {
@@ -8,6 +8,8 @@ if (!sessionCookie || !sessionCookie.value) {
 }
 
 let user = null;
+let assignedContainers = [];
+
 try {
   const userRes = await fetch('http://localhost:8000/api/me', {
     headers: { Cookie: `session_token=${sessionCookie.value}` }
@@ -16,82 +18,186 @@ try {
   if (!userRes.ok) return Astro.redirect('/');
   const userData = await userRes.json();
   user = userData.user;
-} catch (err) {
+
+  // Fetch containers assigned to this user
+  const cRes = await fetch('http://localhost:8000/api/containers', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+  if (cRes.ok) {
+    const cData = await cRes.json();
+    assignedContainers = cData.containers || [];
+  }
+} catch (e) {
   return Astro.redirect('/');
 }
+
+const isAdmin = user.role === 'admin';
+const quota = user.quotas || { ram_mb: 2048, cpu_cores: 2, disk_gb: 20 };
+const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
 ---
 
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>My Account — Server Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>My Quotas & Account — Server Monitor</title>
     <style>
       :root {
         --bg: #0d0f14;
         --surface: #161922;
+        --surface-hover: #1e2230;
         --border: #262b38;
         --text: #f3f4f6;
         --muted: #9ca3af;
         --accent: #6366f1;
+        --accent-hover: #4f46e5;
+        --green: #22c55e;
         --purple: #a855f7;
       }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { background-color: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; }
-      header { background-color: var(--surface); border-bottom: 1px solid var(--border); padding: 1rem 2rem; display: flex; align-items: center; justify-content: space-between; }
-      .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; }
-      .brand-icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), var(--purple)); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; }
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        min-height: 100vh;
+      }
+      header {
+        background-color: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+        font-size: 1.2rem;
+      }
+      .brand-icon {
+        width: 32px; height: 32px;
+        background: linear-gradient(135deg, var(--accent), var(--purple));
+        border-radius: 8px; display: flex; align-items: center; justify-content: center;
+        color: white; font-size: 1.1rem;
+      }
       .nav-links { display: flex; align-items: center; gap: 1.5rem; margin-left: 2rem; }
       .nav-item { color: var(--muted); text-decoration: none; font-size: 0.9rem; font-weight: 500; }
       .nav-item:hover, .nav-item.active { color: var(--text); }
-      main { max-width: 1150px; margin: 2.5rem auto; padding: 0 1.5rem; }
-      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 1.5rem; }
-      .quota-row { display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid var(--border); }
+      main { max-width: 900px; margin: 2.5rem auto; padding: 0 1.5rem; }
+      .card {
+        background-color: var(--surface); border: 1px solid var(--border);
+        border-radius: 12px; padding: 2rem; margin-bottom: 2rem;
+      }
+      .profile-header { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1.5rem; }
+      .avatar-lg { width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--accent); }
+      .badge {
+        font-size: 0.75rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 999px; text-transform: uppercase;
+      }
+      .badge-user { background-color: rgba(99, 102, 241, 0.25); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.5); }
+      .badge-admin { background-color: rgba(168, 85, 247, 0.25); color: #d8b4fe; border: 1px solid rgba(168, 85, 247, 0.5); }
+      .quota-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; margin-top: 1.25rem; }
+      .quota-card { background: rgba(13, 15, 20, 0.6); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
+      .q-title { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem; }
+      .q-val { font-size: 1.2rem; font-weight: 700; color: var(--text); }
+      .progress-bar { height: 6px; background: #262b38; border-radius: 999px; margin-top: 0.6rem; overflow: hidden; }
+      .progress-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+      .ct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; margin-top: 1rem; }
+      .ct-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; }
+      .btn-terminal {
+        display: inline-flex; align-items: center; gap: 0.35rem;
+        background: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.3);
+        padding: 0.4rem 0.85rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; text-decoration: none;
+      }
     </style>
   </head>
   <body>
     <header>
-      <div style="display: flex; align-items: center;">
-        <div class="brand">
-          <div class="brand-icon">⚡</div>
-          <span>Server Monitor</span>
-        </div>
-        <nav class="nav-links">
-          <a href="/dashboard" class="nav-item">Dashboard</a>
-          <a href="/account" class="nav-item active">My Quotas</a>
-        </nav>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <span>Server Monitor</span>
       </div>
-      <div style="font-size: 0.9rem; font-weight: 600; color: #a5b4fc;">
-        {user.email}
-      </div>
+      <nav class="nav-links">
+        <a href="/dashboard" class="nav-item">Dashboard</a>
+        {isAdmin ? <a href="/users" class="nav-item">User Management</a> : <a href="/account" class="nav-item active">My Quotas</a>}
+      </nav>
     </header>
 
     <main>
+      <!-- User Profile Card -->
       <div class="card">
-        <h1 style="font-size: 1.5rem; margin-bottom: 0.5rem;">Account & Quotas</h1>
-        <p style="color: var(--muted); font-size: 0.95rem; margin-bottom: 1.5rem;">
-          Your current resource quotas and profile configuration.
-        </p>
+        <div class="profile-header">
+          {user.picture_url ? (
+            <img src={user.picture_url} alt={user.name} class="avatar-lg" />
+          ) : (
+            <div class="avatar-lg" style="background: var(--accent); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:1.5rem;">
+              {user.name ? user.name[0] : user.email[0].toUpperCase()}
+            </div>
+          )}
+          <div>
+            <h1 style="font-size: 1.4rem; font-weight: 700;">{user.name || 'Container User'}</h1>
+            <div style="color: var(--muted); font-size: 0.9rem; margin-top: 0.15rem;">{user.email}</div>
+            <div style="margin-top: 0.5rem;">
+              <span class={`badge ${isAdmin ? 'badge-admin' : 'badge-user'}`}>{user.role}</span>
+            </div>
+          </div>
+        </div>
 
-        <div class="quota-row">
-          <span style="color: var(--muted);">Email</span>
-          <span style="font-weight: 600;">{user.email}</span>
+        <h2 style="font-size: 1.1rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.5rem;">Resource Quota Allocation</h2>
+        <p style="color: var(--muted); font-size: 0.88rem;">Maximum resource budget allocated to your account by administrator.</p>
+
+        <div class="quota-grid">
+          <div class="quota-card">
+            <div class="q-title">RAM Budget</div>
+            <div class="q-val">{used.ram_mb} / {quota.ram_mb} MB</div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${Math.min(100, (used.ram_mb / quota.ram_mb) * 100)}%;`}></div>
+            </div>
+          </div>
+
+          <div class="quota-card">
+            <div class="q-title">CPU Cores Budget</div>
+            <div class="q-val">{used.cpu_cores} / {quota.cpu_cores} Cores</div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${Math.min(100, (used.cpu_cores / quota.cpu_cores) * 100)}%;`}></div>
+            </div>
+          </div>
+
+          <div class="quota-card">
+            <div class="q-title">Disk Storage Budget</div>
+            <div class="q-val">{used.disk_gb} / {quota.disk_gb} GB</div>
+            <div class="progress-bar">
+              <div class="progress-fill" style={`width: ${Math.min(100, (used.disk_gb / quota.disk_gb) * 100)}%;`}></div>
+            </div>
+          </div>
         </div>
-        <div class="quota-row">
-          <span style="color: var(--muted);">Role</span>
-          <span style="font-weight: 600; text-transform: uppercase;">{user.role}</span>
-        </div>
-        <div class="quota-row">
-          <span style="color: var(--muted);">RAM Allocation Limit</span>
-          <span style="font-weight: 600;">{user.quotas.ram_mb} MB</span>
-        </div>
-        <div class="quota-row">
-          <span style="color: var(--muted);">CPU Core Limit</span>
-          <span style="font-weight: 600;">{user.quotas.cpu_cores} Cores</span>
-        </div>
-        <div class="quota-row" style="border: none;">
-          <span style="color: var(--muted);">Disk Storage Limit</span>
-          <span style="font-weight: 600;">{user.quotas.disk_gb} GB</span>
-        </div>
+      </div>
+
+      <!-- Assigned Containers Card -->
+      <div class="card">
+        <h2 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 0.5rem;">Assigned LXD Containers ({assignedContainers.length})</h2>
+        <p style="color: var(--muted); font-size: 0.88rem;">Containers delegated to your account with terminal execution access.</p>
+
+        {assignedContainers.length > 0 ? (
+          <div class="ct-grid">
+            {assignedContainers.map((c) => (
+              <div class="ct-card">
+                <div style="font-weight: 700; font-size: 1rem; margin-bottom: 0.4rem;">{c.name}</div>
+                <div style="font-size: 0.82rem; color: var(--muted); margin-bottom: 1rem;">
+                  {c.limits?.ram_mb}MB RAM · {c.limits?.cpu_cores} Core · {c.limits?.disk_gb}GB Disk
+                </div>
+                <a href={`/terminal?container=${encodeURIComponent(c.name)}`} class="btn-terminal">
+                  <span>>_</span> Launch Terminal
+                </a>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style="margin-top: 1.5rem; color: var(--muted); font-size: 0.9rem;">
+            No containers assigned yet. Contact your administrator or create a new container from your dashboard.
+          </div>
+        )}
       </div>
     </main>
   </body>

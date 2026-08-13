@@ -1,4 +1,4 @@
-"""
+﻿"""
 backend/app/main.py
 
 Falcon WSGI application factory.
@@ -32,6 +32,7 @@ from app.resources.users import (
     UserAssignmentsResource,
 )
 from app.resources.terminal import TerminalExecResource
+from app.resources.host import HostResource
 
 
 class RootResource:
@@ -51,7 +52,7 @@ class DashboardRedirectResource:
 
 
 class HealthResource:
-    """Simple liveness probe — no auth required."""
+    """Simple liveness probe - no auth required."""
 
     def on_get(self, req, resp):
         resp.media = {
@@ -81,41 +82,40 @@ def create_app() -> falcon.App:
         ]
     )
 
-    # ── Root & Health ─────────────────────────────────────────────────────────
+    # Root & Health
     app.add_route("/", RootResource())
     app.add_route("/dashboard", DashboardRedirectResource())
     app.add_route("/health", HealthResource())
 
-    # ── Auth Endpoints ────────────────────────────────────────────────────────
+    # Auth Endpoints
     app.add_route("/auth/google", GoogleAuthRedirectResource())
     app.add_route("/auth/google/callback", GoogleAuthCallbackResource())
     app.add_route("/auth/logout", LogoutResource())
 
-    # ── User Profile & User Management ────────────────────────────────────────
+    # User Profile & User Management
     app.add_route("/api/me", UserMeResource())
     app.add_route("/api/users", UserCollection())
+    app.add_route("/api/users/invite", UserCollection())
     app.add_route("/api/users/{id}", UserResource())
     app.add_route("/api/users/{id}/assignments", UserAssignmentsResource())
     app.add_route("/api/users/{id}/assignments/{name}", UserAssignmentsResource())
 
-    # ── Containers CRUD & Actions ─────────────────────────────────────────────
+    # Host Accounting
+    app.add_route("/api/host", HostResource())
+
+    # Containers CRUD & Actions
     app.add_route("/api/containers", ContainerCollection())
     app.add_route("/api/containers/{name}", ContainerResource())
     app.add_route("/api/containers/{name}/action", ContainerAction())
 
-    # ── Metrics Endpoints ─────────────────────────────────────────────────────
+    # Metrics Endpoints
     app.add_route("/api/metrics/{name}/live", MetricsLiveResource())
     app.add_route("/api/metrics/{name}/history", MetricsHistoryResource())
 
-    # ── Terminal Exec ─────────────────────────────────────────────────────────
-    # POST /api/terminal/{name}/exec
-    # Authenticated, authorized, audited command execution inside LXD containers.
-    # See backend/app/resources/terminal.py for full security design documentation.
+    # Terminal Exec
     app.add_route("/api/terminal/{name}/exec", TerminalExecResource())
 
     return app
 
 
-# WSGI entry point used by Gunicorn:
-#   gunicorn app.main:application -w 2 -b 0.0.0.0:8000
 application = create_app()
