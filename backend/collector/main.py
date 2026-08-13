@@ -1,4 +1,4 @@
-"""
+﻿"""
 backend/collector/main.py
 
 Standalone LXD Metrics Collector Process.
@@ -8,6 +8,7 @@ Every POLL_INTERVAL seconds:
 1. Queries LXD for all container states using lxd_client.lxd_safe()
 2. Computes CPU %, RAM used, Disk used, Net Rx/Tx rates (bps), and process count
 3. Writes Point samples to TinyFlux TSDB (tsdb.py)
+4. Executes hourly metric compaction & 30-day retention pruning (compaction.py)
 
 Gracefully handles stopped containers and LXD daemon restarts/unavailability.
 """
@@ -174,11 +175,22 @@ def run_collector_loop(stop_event: threading.Event | None = None) -> None:
     log.info("Starting LXD Metrics Collector (Polling every %d seconds)...", interval)
 
     stop = stop_event or threading.Event()
+    cycle_counter = 0
 
     while not stop.is_set():
         try:
             count = collect_cycle()
             log.debug("Collection cycle completed: %d points written.", count)
+
+            # Run TSDB compaction once every 360 cycles (~1 hour)
+            cycle_counter += 1
+            if cycle_counter % 360 == 0:
+                try:
+                    from app.compaction import compact_metrics
+                    compact_summary = compact_metrics()
+                    log.info("Hourly TSDB compaction summary: %s", compact_summary)
+                except Exception as comp_err:
+                    log.error("Error during TSDB metric compaction: %s", comp_err)
         except Exception as exc:
             log.error("Unexpected error in collector cycle: %s", exc, exc_info=True)
 
