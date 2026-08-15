@@ -1,4 +1,4 @@
-﻿---
+---
 // dashboard/src/pages/users.astro
 // Admin User Management & Host Capacity Dashboard
 const sessionCookie = Astro.cookies.get('session_token');
@@ -279,6 +279,7 @@ const allocated = hostAccounting?.container_allocated || { ram_mb: 0, cpu_cores:
       <nav class="nav-links">
         <a href="/dashboard" class="nav-item">Dashboard</a>
         <a href="/users" class="nav-item active">User Management</a>
+        <a href="/audit" class="nav-item">Audit Logs</a>
       </nav>
     </header>
 

@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     detail   TEXT,
     at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
+INSERT OR IGNORE INTO users (id, email, name, role) VALUES (1, 'system@test.com', 'System User', 'admin');
 """
 
 # Module-level shared in-memory connection — created once per pytest session

@@ -1,4 +1,4 @@
-﻿---
+---
 // dashboard/src/pages/dashboard.astro
 // Real-time container control panel with lifecycle actions, limit tuning & metrics links
 const sessionCookie = Astro.cookies.get('session_token');
@@ -169,6 +169,7 @@ const used = user.used || { ram_mb: 0, cpu_cores: 0, disk_gb: 0 };
         <nav class="nav-links">
           <a href="/dashboard" class="nav-item active">Dashboard</a>
           {isAdmin ? <a href="/users" class="nav-item">User Management</a> : <a href="/account" class="nav-item">My Quotas</a>}
+        {isAdmin ? <a href="/audit" class="nav-item">Audit Logs</a> : null}
         </nav>
       </div>
       <div class="user-profile">

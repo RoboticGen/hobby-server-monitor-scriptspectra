@@ -36,7 +36,7 @@ const maxDisk = isAdmin ? 100 : Math.max(1, quota.disk_gb - used.disk_gb);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Create Container — Server Monitor</title>
+    <title>Create Container Â— Server Monitor</title>
     <style>
       :root {
         --bg: #0d0f14;
@@ -237,6 +237,7 @@ const maxDisk = isAdmin ? 100 : Math.max(1, quota.disk_gb - used.disk_gb);
       <nav class="nav-links">
         <a href="/dashboard" class="nav-item">Dashboard</a>
         {isAdmin ? <a href="/users" class="nav-item">User Management</a> : <a href="/account" class="nav-item">My Quotas</a>}
+        {isAdmin ? <a href="/audit" class="nav-item">Audit Logs</a> : null}
       </nav>
     </header>
 

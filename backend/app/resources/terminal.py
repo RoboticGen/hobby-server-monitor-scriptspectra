@@ -248,3 +248,65 @@ class TerminalExecResource:
             "truncated": truncated,
         }
 
+
+
+class TerminalHistoryResource:
+    """Resource handler for GET /api/terminal/{name}/history."""
+
+    def on_get(self, req: falcon.Request, resp: falcon.Response, name: str) -> None:
+        name = validate_container_name(name)
+        user = require_role(req, "user")
+        
+        db = get_db()
+        _check_container_access(db, user, name)
+
+        if user.get("role") == "admin":
+            query = """
+                SELECT a.id, a.actor_id, a.detail, a.at, u.email AS actor_email
+                FROM audit_log a
+                LEFT JOIN users u ON a.actor_id = u.id
+                WHERE a.action = 'terminal.exec'
+                  AND a.target = ?
+                ORDER BY a.at DESC
+                LIMIT 100
+            """
+            rows = db.execute(query, (name,)).fetchall()
+        else:
+            query = """
+                SELECT a.id, a.actor_id, a.detail, a.at, u.email AS actor_email
+                FROM audit_log a
+                LEFT JOIN users u ON a.actor_id = u.id
+                WHERE a.action = 'terminal.exec'
+                  AND a.target = ?
+                  AND a.actor_id = ?
+                ORDER BY a.at DESC
+                LIMIT 100
+            """
+            rows = db.execute(query, (name, user["id"])).fetchall()
+
+        history = []
+        for r in rows:
+            detail = None
+            if r["detail"]:
+                try:
+                    detail = json.loads(r["detail"])
+                except Exception:
+                    detail = {"command": r["detail"], "exit_code": None}
+
+            command = detail.get("command", "")
+            exit_code = detail.get("exit_code")
+            error = detail.get("error")
+
+            history.append({
+                "id": r["id"],
+                "actor_id": r["actor_id"],
+                "actor_email": r["actor_email"] or "System",
+                "command": command,
+                "exit_code": exit_code,
+                "error": error,
+                "at": r["at"]
+            })
+
+        resp.media = {
+            "history": history
+        }

@@ -1,0 +1,365 @@
+﻿---
+// dashboard/src/pages/audit.astro
+// Admin Audit Trail Log Viewer
+const sessionCookie = Astro.cookies.get('session_token');
+
+if (!sessionCookie || !sessionCookie.value) {
+  return Astro.redirect('/');
+}
+
+let user = null;
+let auditLogs = [];
+
+try {
+  // 1. Verify admin profile
+  const userRes = await fetch('http://localhost:8000/api/me', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+
+  if (!userRes.ok) return Astro.redirect('/');
+  const userData = await userRes.json();
+  user = userData.user;
+
+  if (user.role !== 'admin') {
+    return Astro.redirect('/dashboard');
+  }
+
+  // 2. Fetch system audit logs
+  const auditRes = await fetch('http://localhost:8000/api/audit', {
+    headers: { Cookie: `session_token=${sessionCookie.value}` }
+  });
+  if (auditRes.ok) {
+    const aData = await auditRes.json();
+    auditLogs = aData.audit_logs || [];
+  }
+} catch (err) {
+  return Astro.redirect('/dashboard');
+}
+
+const isAdmin = user.role === 'admin';
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>System Audit Logs — Server Monitor</title>
+    <style>
+      :root {
+        --bg: #0d0f14;
+        --surface: #161922;
+        --surface-hover: #1e2230;
+        --border: #262b38;
+        --text: #f3f4f6;
+        --muted: #9ca3af;
+        --accent: #6366f1;
+        --accent-hover: #4f46e5;
+        --green: #22c55e;
+        --purple: #a855f7;
+        --amber: #f59e0b;
+        --red: #ef4444;
+        --blue: #3b82f6;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        background-color: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        min-height: 100vh;
+      }
+      header {
+        background-color: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 1rem 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-weight: 700;
+      }
+      .brand-icon {
+        color: var(--accent);
+        font-size: 1.25rem;
+      }
+      .nav-links {
+        display: flex;
+        gap: 1.5rem;
+      }
+      .nav-item {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.95rem;
+        font-weight: 500;
+        transition: color 0.15s ease;
+      }
+      .nav-item:hover, .nav-item.active {
+        color: var(--text);
+      }
+      main {
+        max-width: 1200px;
+        margin: 2rem auto;
+        padding: 0 1rem;
+      }
+      .banner {
+        background: radial-gradient(circle at top left, rgba(99, 102, 241, 0.15), transparent 60%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem 2rem;
+        margin-bottom: 2rem;
+        backdrop-filter: blur(8px);
+      }
+      .banner h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+      }
+      .banner p {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .controls {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      .search-input {
+        flex: 1;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        outline: none;
+        transition: border-color 0.15s ease;
+      }
+      .search-input:focus {
+        border-color: var(--accent);
+      }
+      .filter-select {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        color: var(--text);
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        outline: none;
+        cursor: pointer;
+      }
+      .log-table-container {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        text-align: left;
+        font-size: 0.9rem;
+      }
+      th {
+        background: rgba(255, 255, 255, 0.02);
+        border-bottom: 1px solid var(--border);
+        color: var(--muted);
+        font-weight: 600;
+        padding: 1rem;
+      }
+      td {
+        border-bottom: 1px solid var(--border);
+        padding: 1rem;
+        vertical-align: middle;
+      }
+      tr:last-child td {
+        border-bottom: none;
+      }
+      .action-badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        font-family: monospace;
+      }
+      .action-badge.create { background: rgba(34, 197, 94, 0.1); color: var(--green); }
+      .action-badge.delete { background: rgba(239, 68, 68, 0.1); color: var(--red); }
+      .action-badge.update { background: rgba(245, 158, 11, 0.1); color: var(--amber); }
+      .action-badge.terminal { background: rgba(59, 130, 246, 0.1); color: var(--blue); }
+      .action-badge.other { background: rgba(168, 85, 247, 0.1); color: var(--purple); }
+      .timestamp {
+        font-family: monospace;
+        color: var(--muted);
+      }
+      .details-btn {
+        background: transparent;
+        border: none;
+        color: var(--accent);
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-decoration: underline;
+      }
+      .details-btn:hover {
+        color: var(--accent-hover);
+      }
+      .details-row {
+        background: rgba(0, 0, 0, 0.2);
+        display: none;
+      }
+      .details-row td {
+        padding: 1rem;
+      }
+      .details-pre {
+        background: #090b0e;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 0.75rem;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.8rem;
+        color: #d1d5db;
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <div class="brand-icon">⚡</div>
+        <span>Server Monitor</span>
+      </div>
+      <nav class="nav-links">
+        <a href="/dashboard" class="nav-item">Dashboard</a>
+        <a href="/users" class="nav-item">User Management</a>
+        <a href="/audit" class="nav-item active">Audit Logs</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="banner">
+        <h1>System Audit Logs</h1>
+        <p>A comprehensive, immutable audit trail of all server provisioning, lifecycle updates, user invitations, and interactive terminal commands.</p>
+      </div>
+
+      <div class="controls">
+        <input type="text" id="searchInput" placeholder="Search by email, action, or container..." class="search-input" />
+        <select id="actionFilter" class="filter-select">
+          <option value="">All Actions</option>
+          <option value="create">Container Provision</option>
+          <option value="delete">Container Delete</option>
+          <option value="update">Container Update</option>
+          <option value="terminal">Terminal Execute</option>
+          <option value="user">User Actions</option>
+        </select>
+      </div>
+
+      <div class="log-table-container">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 180px;">Timestamp</th>
+              <th>Actor</th>
+              <th>Action</th>
+              <th>Target Container</th>
+              <th style="width: 100px;">Details</th>
+            </tr>
+          </thead>
+          <tbody id="logTableBody">
+            {auditLogs.map((log) => {
+              let actionClass = 'other';
+              if (log.action.includes('create')) actionClass = 'create';
+              else if (log.action.includes('delete')) actionClass = 'delete';
+              else if (log.action.includes('update')) actionClass = 'update';
+              else if (log.action.includes('terminal')) actionClass = 'terminal';
+
+              const formattedTime = log.at.replace('T', ' ').substring(0, 19);
+
+              return (
+                <>
+                  <tr class="log-row" data-search={`${log.actor_email} ${log.action} ${log.target}`.toLowerCase()} data-action={log.action} id={`row-${log.id}`}>
+                    <td><span class="timestamp">{formattedTime}</span></td>
+                    <td>
+                      <div style="font-weight: 500;">{log.actor_name}</div>
+                      <div style="font-size: 0.8rem; color: var(--muted);">{log.actor_email}</div>
+                    </td>
+                    <td>
+                      <span class={`action-badge ${actionClass}`}>{log.action}</span>
+                    </td>
+                    <td>
+                      <span style="font-family: monospace; font-weight: 600;">{log.target || '—'}</span>
+                    </td>
+                    <td>
+                      {log.detail ? (
+                        <button class="details-btn" onclick={`toggleDetails(${log.id})`}>View</button>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                  {log.detail && (
+                    <tr class="details-row" id={`details-${log.id}`}>
+                      <td colspan="5">
+                        <pre class="details-pre">{JSON.stringify(log.detail, null, 2)}</pre>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <script is:inline>
+      function toggleDetails(id) {
+        const row = document.getElementById(`details-${id}`);
+        if (row.style.display === 'table-row') {
+          row.style.display = 'none';
+        } else {
+          row.style.display = 'table-row';
+        }
+      }
+
+      const searchInput = document.getElementById('searchInput');
+      const actionFilter = document.getElementById('actionFilter');
+      const rows = document.querySelectorAll('.log-row');
+
+      function filterLogs() {
+        const query = searchInput.value.toLowerCase();
+        const category = actionFilter.value;
+
+        rows.forEach(row => {
+          const textMatch = row.getAttribute('data-search').includes(query);
+          const actionVal = row.getAttribute('data-action');
+          
+          let categoryMatch = true;
+          if (category) {
+            if (category === 'create') categoryMatch = actionVal.includes('create');
+            else if (category === 'delete') categoryMatch = actionVal.includes('delete');
+            else if (category === 'update') categoryMatch = actionVal.includes('update');
+            else if (category === 'terminal') categoryMatch = actionVal.includes('terminal');
+            else if (category === 'user') categoryMatch = actionVal.includes('user') || actionVal.includes('invite');
+          }
+
+          const id = row.id.replace('row-', '');
+          const detailsRow = document.getElementById(`details-${id}`);
+
+          if (textMatch && categoryMatch) {
+            row.style.display = 'table-row';
+          } else {
+            row.style.display = 'none';
+            if (detailsRow) detailsRow.style.display = 'none';
+          }
+        });
+      }
+
+      searchInput.addEventListener('input', filterLogs);
+      actionFilter.addEventListener('change', filterLogs);
+    </script>
+  </body>
+</html>

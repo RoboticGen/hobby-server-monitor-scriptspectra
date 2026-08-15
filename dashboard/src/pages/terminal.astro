@@ -388,6 +388,91 @@ if (accessDenied || containerNotFound) {
         animation: spin 0.7s linear infinite;
       }
       @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* ── History Panel Styles ───────────────────────────────────────── */
+      .history-panel {
+        flex: 1;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        min-width: 260px;
+        max-width: 320px;
+      }
+      .history-header {
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid var(--border);
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: var(--text);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(255, 255, 255, 0.01);
+      }
+      .refresh-btn {
+        background: transparent;
+        border: none;
+        color: var(--accent);
+        cursor: pointer;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+      .refresh-btn:hover {
+        color: var(--accent-hover);
+        text-decoration: underline;
+      }
+      .history-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0.75rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .history-item {
+        padding: 0.5rem 0.75rem;
+        background: var(--surface-hover);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+      .history-item:hover {
+        background: rgba(99, 102, 241, 0.05);
+        border-color: var(--accent);
+      }
+      .history-item-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 0.7rem;
+        color: var(--muted);
+      }
+      .history-item-cmd {
+        color: var(--text);
+        font-weight: 500;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .status-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        margin-right: 0.35rem;
+      }
+      .status-dot.ok { background: var(--green); }
+      .status-dot.err { background: var(--red); }
+      .status-dot.unknown { background: var(--muted); }
     </style>
   </head>
 
@@ -409,7 +494,10 @@ if (accessDenied || containerNotFound) {
     </header>
 
     <!-- Terminal body -->
-    <div class="terminal-wrap">
+    <div class="terminal-wrap" style="flex-direction: row; gap: 1rem;">
+      
+      <!-- Main Terminal Column -->
+      <div style="flex: 3; display: flex; flex-direction: column; overflow: hidden; gap: 0.75rem;">
 
       <!-- Security info chips -->
       <div class="terminal-info">
@@ -458,6 +546,18 @@ if (accessDenied || containerNotFound) {
           <div class="spinner" id="spinner"></div>
           <span id="runLabel">Run</span>
         </button>
+      </div>
+      </div>
+
+      <!-- Command History Sidebar Panel -->
+      <div class="history-panel">
+        <div class="history-header">
+          <span>Command History</span>
+          <button id="refreshHistoryBtn" class="refresh-btn" type="button">Refresh</button>
+        </div>
+        <div class="history-list" id="historyList">
+          <div style="color: var(--muted); text-align: center; font-size: 0.8rem; margin-top: 2rem;">Loading history...</div>
+        </div>
       </div>
 
     </div>
@@ -604,7 +704,65 @@ if (accessDenied || containerNotFound) {
         runLabel.textContent = 'Run';
         input.disabled = false;
         input.focus();
+        fetchHistory();
       }
+
+
+      // ── Fetch and Render Terminal History ──────────────────────────────
+      const historyList = document.getElementById('historyList');
+      const refreshHistoryBtn = document.getElementById('refreshHistoryBtn');
+
+      async function fetchHistory() {
+        try {
+          const res = await fetch(`/api/terminal/${containerName}/history`, {
+            credentials: 'include'
+          });
+          if (res.ok) {
+            const data = await res.json();
+            renderHistory(data.history || []);
+          } else {
+            historyList.innerHTML = '<div style="color: var(--red); text-align: center; font-size: 0.8rem; margin-top: 2rem;">Failed to load history</div>';
+          }
+        } catch (err) {
+          historyList.innerHTML = '<div style="color: var(--red); text-align: center; font-size: 0.8rem; margin-top: 2rem;">Network error</div>';
+        }
+      }
+
+      function renderHistory(items) {
+        if (items.length === 0) {
+          historyList.innerHTML = '<div style="color: var(--muted); text-align: center; font-size: 0.8rem; margin-top: 2rem;">No command history</div>';
+          return;
+        }
+
+        historyList.innerHTML = '';
+        items.forEach(item => {
+          const div = document.createElement('div');
+          div.className = 'history-item';
+
+          const exitOk = item.exit_code === 0;
+          const dotClass = item.exit_code === null ? 'status-dot unknown' : (exitOk ? 'status-dot ok' : 'status-dot err');
+          const timestamp = item.at.substring(11, 16); // HH:MM
+
+          div.innerHTML = `
+            <div class="history-item-top">
+              <span style="display: flex; align-items: center;"><span class="${dotClass}"></span>${item.actor_email}</span>
+              <span>${timestamp}</span>
+            </div>
+            <div class="history-item-cmd">${escHtml(item.command)}</div>
+          `;
+
+          div.addEventListener('click', () => {
+            input.value = item.command;
+            input.dispatchEvent(new Event('input'));
+            input.focus();
+          });
+
+          historyList.appendChild(div);
+        });
+      }
+
+      refreshHistoryBtn.addEventListener('click', fetchHistory);
+      fetchHistory();
 
       // ── HTML escaping ──────────────────────────────────────────────────
       function escHtml(str) {

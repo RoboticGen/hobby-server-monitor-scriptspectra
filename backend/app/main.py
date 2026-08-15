@@ -31,7 +31,8 @@ from app.resources.users import (
     UserResource,
     UserAssignmentsResource,
 )
-from app.resources.terminal import TerminalExecResource
+from app.resources.terminal import TerminalExecResource, TerminalHistoryResource
+from app.resources.audit import AuditCollectionResource
 from app.resources.host import HostResource
 
 
@@ -114,6 +115,8 @@ def create_app() -> falcon.App:
 
     # Terminal Exec
     app.add_route("/api/terminal/{name}/exec", TerminalExecResource())
+    app.add_route("/api/terminal/{name}/history", TerminalHistoryResource())
+    app.add_route("/api/audit", AuditCollectionResource())
 
     return app
 
